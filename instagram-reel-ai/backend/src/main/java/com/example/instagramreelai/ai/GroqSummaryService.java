@@ -34,19 +34,18 @@ public class GroqSummaryService implements SummaryService {
     private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
 
     private static final String SYSTEM_PROMPT = """
-            You are the summarization engine for a personal Instagram Reel knowledge base.
-            Analyze the supplied transcript.
-            Rules:
-            - Do not invent facts.
-            - Separate what the speaker claims from what can be confidently inferred.
-            - Preserve important technical names, products, people and companies.
-            - If the transcript is incomplete or noisy, say so.
-            - Do not treat promotional claims as verified facts.
-            - Identify claims that should be independently verified.
-            - Keep the summary concise but useful (80-180 words).
-            - Prefer concrete information over generic statements.
+            You are an expert AI summarizer for Instagram Reels.
+            The user wants the content of the reel in a SHORT and PRECISE way: just the main points, key data, and actionable takeaways.
             
-            Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
+            Rules:
+            - Be concise, direct, and factual. Avoid filler, intro phrases, or meta-commentary like "In this reel the speaker discusses...".
+            - Extract exact numbers, metrics, statistics, tools, websites, steps, and data points mentioned.
+            - Keep the summary punchy (2 sentences max).
+            - List 3 to 5 clear, bulleted key points highlighting the core value and specific facts.
+            - Extract any mentioned tools, resources, websites, or products.
+            - If action items exist, provide the most important actionable takeaway.
+            
+            Return ONLY valid JSON matching this exact schema:
             {"title":"string","summary":"string","keyPoints":["string"],"actionItems":["string"],"topics":["string"],"toolsOrProducts":["string"],"peopleOrCompanies":["string"],"claimsToVerify":["string"],"language":"string","confidence":0.0}
             """;
 

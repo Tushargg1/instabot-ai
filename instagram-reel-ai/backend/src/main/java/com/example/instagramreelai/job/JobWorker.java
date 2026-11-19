@@ -13,6 +13,8 @@ import com.example.instagramreelai.service.ReelCacheService;
 import com.example.instagramreelai.service.ReelResultService;
 import com.example.instagramreelai.service.ResourceDetectionService;
 import com.example.instagramreelai.service.WorkerRegistryService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,6 +45,7 @@ public class JobWorker {
     private final EncryptionService encryptionService;
     private final ResourceDetectionService resourceDetectionService;
     private final WorkerRegistryService workerRegistryService;
+    private final ObjectMapper objectMapper;
 
     @Scheduled(fixedDelay = 5000)
     public void pollAndProcess() {
@@ -85,8 +88,21 @@ public class JobWorker {
             String accessToken = account != null && account.getAccessTokenEncrypted() != null
                     ? encryptionService.decrypt(account.getAccessTokenEncrypted())
                     : appProperties.getInstagram().getAccessToken();
-            Optional<String> mediaUrl = instagramClient.resolveMediaUrl(
-                    reel.getExternalMediaId(), accessToken);
+
+            Optional<String> mediaUrl = Optional.empty();
+
+            // 1. Direct downloadable media URL from webhook payload
+            if (reel.getSourceUrl() != null && !reel.getSourceUrl().isBlank()
+                    && (reel.getSourceUrl().startsWith("http://") || reel.getSourceUrl().startsWith("https://"))
+                    && !reel.getSourceUrl().contains("instagram.com/reel/")
+                    && !reel.getSourceUrl().contains("instagram.com/p/")) {
+                mediaUrl = Optional.of(reel.getSourceUrl());
+            }
+
+            // 2. Resolve via Instagram API if external media ID exists
+            if (mediaUrl.isEmpty() && reel.getExternalMediaId() != null && !reel.getExternalMediaId().isBlank()) {
+                mediaUrl = instagramClient.resolveMediaUrl(reel.getExternalMediaId(), accessToken);
+            }
 
             if (mediaUrl.isEmpty()) {
                 reel.setProcessingStatus(JobStatus.MEDIA_UNAVAILABLE);
@@ -94,11 +110,8 @@ public class JobWorker {
                 jobService.markFailed(job.getId(), workerId, JobStatus.MEDIA_UNAVAILABLE,
                         "MEDIA_NOT_ACCESSIBLE",
                         "Instagram did not provide downloadable media for this content.", true);
-                boolean delivered = fanOut(reel,
-                        "Sorry, I couldn't access the media for this Reel. " +
-                                "The content may not be available through the Instagram API. " +
-                                "Please submit a supported Reel URL.", accountId, accessToken);
-                if (!delivered) jobService.createJobIfAbsent(reel, "REPLY");
+                fanOut(reel,
+                        "⚠️ I received your Reel, but direct audio/video media was not accessible through the Instagram API for this share.\n\nTip: You can send a direct video or public link!", accountId, accessToken);
                 return;
             }
 
@@ -206,23 +219,68 @@ public class JobWorker {
     }
 
     private String formatReply(ReelSummary summary) {
-        String title = summary.getTitle() == null ? "Reel summary" : summary.getTitle();
-        return truncate("📝 " + title + "\n\n" + summary.getSummary());
+        StringBuilder sb = new StringBuilder();
+        sb.append("🎬 ").append(summary.getTitle() != null && !summary.getTitle().isBlank() ? summary.getTitle() : "Reel Highlights").append("\n\n");
+
+        if (summary.getSummary() != null && !summary.getSummary().isBlank()) {
+            sb.append("📌 Summary:\n").append(summary.getSummary().trim()).append("\n\n");
+        }
+
+        try {
+            if (summary.getKeyPoints() != null && !summary.getKeyPoints().isBlank()) {
+                List<String> points = objectMapper.readValue(summary.getKeyPoints(), new TypeReference<List<String>>() {});
+                if (points != null && !points.isEmpty()) {
+                    sb.append("⚡ Main Points & Key Data:\n");
+                    for (String pt : points) {
+                        sb.append("• ").append(pt).append("\n");
+                    }
+                    sb.append("\n");
+                }
+            }
+            if (summary.getToolsOrProducts() != null && !summary.getToolsOrProducts().isBlank()) {
+                List<String> tools = objectMapper.readValue(summary.getToolsOrProducts(), new TypeReference<List<String>>() {});
+                if (tools != null && !tools.isEmpty()) {
+                    sb.append("🛠️ Tools & Mentions: ").append(String.join(", ", tools)).append("\n\n");
+                }
+            }
+            if (summary.getActionItems() != null && !summary.getActionItems().isBlank()) {
+                List<String> actions = objectMapper.readValue(summary.getActionItems(), new TypeReference<List<String>>() {});
+                if (actions != null && !actions.isEmpty()) {
+                    sb.append("💡 Key Takeaway:\n• ").append(actions.get(0)).append("\n");
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return truncate(sb.toString().trim());
     }
 
     private String formatReply(AiSummaryResult summary) {
         StringBuilder sb = new StringBuilder();
-        sb.append("📝 ").append(summary.getTitle()).append("\n\n");
-        sb.append(summary.getSummary()).append("\n\n");
+        sb.append("🎬 ").append(summary.getTitle() != null && !summary.getTitle().isBlank() ? summary.getTitle() : "Reel Highlights").append("\n\n");
+
+        if (summary.getSummary() != null && !summary.getSummary().isBlank()) {
+            sb.append("📌 Summary:\n").append(summary.getSummary().trim()).append("\n\n");
+        }
 
         if (summary.getKeyPoints() != null && !summary.getKeyPoints().isEmpty()) {
-            sb.append("🔑 Key Points:\n");
+            sb.append("⚡ Main Points & Key Data:\n");
             for (String point : summary.getKeyPoints()) {
                 sb.append("• ").append(point).append("\n");
             }
+            sb.append("\n");
         }
 
-        return truncate(sb.toString());
+        if (summary.getToolsOrProducts() != null && !summary.getToolsOrProducts().isEmpty()) {
+            sb.append("🛠️ Tools & Mentions: ")
+              .append(String.join(", ", summary.getToolsOrProducts()))
+              .append("\n\n");
+        }
+
+        if (summary.getActionItems() != null && !summary.getActionItems().isEmpty()) {
+            sb.append("💡 Key Takeaway:\n• ").append(summary.getActionItems().get(0)).append("\n");
+        }
+
+        return truncate(sb.toString().trim());
     }
 
     private String truncate(String message) {

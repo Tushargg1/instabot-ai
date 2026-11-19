@@ -1,7 +1,9 @@
 package com.example.instagramreelai.service;
 
+import com.example.instagramreelai.config.AppProperties;
 import com.example.instagramreelai.entity.InstagramAccount;
 import com.example.instagramreelai.entity.Reel;
+import com.example.instagramreelai.instagram.InstagramClient;
 import com.example.instagramreelai.repository.InstagramAccountRepository;
 import com.example.instagramreelai.repository.ReelRepository;
 import com.example.instagramreelai.repository.WebhookEventRepository;
@@ -29,6 +31,8 @@ public class WebhookService {
     private final ReelIngestionService ingestionService;
     private final ObjectMapper objectMapper;
     private final DmAutoReplyService dmAutoReplyService;
+    private final AppProperties appProperties;
+    private final InstagramClient instagramClient;
 
     /**
      * Performs only durable, idempotent intake. Expensive media and AI work stays queued.
@@ -69,11 +73,50 @@ public class WebhookService {
         String recipientId = messageNode.path("recipient").path("id").asText();
         String dmText = messageNode.path("message").path("text").asText(null);
 
-        // ── Fast-path DM auto-reply: FIRE IMMEDIATELY in parallel with DB persistence ──
+        // Detect if this message is a Reel attachment or contains a Reel URL
+        JsonNode rawAttachments = messageNode.path("message").path("attachments");
+        boolean hasReelAttachment = false;
+        String reelMediaUrl = null;
+        String reelMediaId = null;
+
+        if (rawAttachments.isArray() && !rawAttachments.isEmpty()) {
+            JsonNode firstAtt = rawAttachments.get(0);
+            String attType = firstAtt.path("type").asText("");
+            if ("video".equals(attType) || "audio".equals(attType) || "share".equals(attType)
+                    || "ig_reel".equals(attType) || "reel".equals(attType)) {
+                hasReelAttachment = true;
+                JsonNode payload = firstAtt.path("payload");
+                reelMediaUrl = payload.path("url").asText(null);
+                reelMediaId = payload.has("reel_video_id")
+                        ? payload.path("reel_video_id").asText(null)
+                        : payload.path("id").asText(null);
+            }
+        }
+
+        // Check if message text contains an Instagram link
+        if (!hasReelAttachment && dmText != null && (dmText.contains("instagram.com/reel/") || dmText.contains("instagram.com/reels/") || dmText.contains("instagram.com/p/"))) {
+            hasReelAttachment = true;
+            reelMediaUrl = dmText.trim();
+        }
+
+        final boolean isReel = hasReelAttachment;
         final InstagramAccount finalAccount = account;
+        final String finalMediaUrl = reelMediaUrl;
+        final String finalMediaId = reelMediaId;
+
+        // ── Fast-path auto-reply thread ──
         Thread t = new Thread(() -> {
             try {
-                dmAutoReplyService.handleIncomingDm(senderId, dmText, finalAccount.getInstagramAccountId());
+                if (isReel) {
+                    // Send instant acknowledgment for shared Reels
+                    String token = appProperties.getInstagram().getAccessToken();
+                    if (token != null && !token.isBlank()) {
+                        instagramClient.sendReply(finalAccount.getInstagramAccountId(), senderId,
+                                "⏳ Got your Reel! Extracting the main points and key data for you, one sec...", token);
+                    }
+                } else {
+                    dmAutoReplyService.handleIncomingDm(senderId, dmText, finalAccount.getInstagramAccountId());
+                }
             } catch (Exception ex) {
                 log.warn("DM auto-reply error for mid={}: {}", messageId, ex.getMessage());
             }
@@ -81,7 +124,7 @@ public class WebhookService {
         t.setName("dm-autoreply-" + messageId);
         t.setDaemon(true);
         t.start();
-        // ──────────────────────────────────────────────────────────────────────────────
+        // ─────────────────────────────────
 
         // Always persist the raw event so we can inspect all incoming DMs (including creator replies)
         try {
@@ -93,9 +136,10 @@ public class WebhookService {
             event.setReceivedAt(Instant.now());
             event.setProcessed(false);
 
-            JsonNode rawAttachments = messageNode.path("message").path("attachments");
             if (rawAttachments.isArray() && !rawAttachments.isEmpty()) {
                 event.setEventType(rawAttachments.get(0).path("type").asText());
+            } else if (isReel) {
+                event.setEventType("ig_reel");
             } else {
                 event.setEventType("text");
             }
@@ -106,27 +150,15 @@ public class WebhookService {
         }
 
         // Now process reel attachments for the AI pipeline
-        JsonNode attachments = messageNode.path("message").path("attachments");
-        if (!attachments.isArray() || attachments.isEmpty()) return;
-        JsonNode attachment = attachments.get(0);
-        String type = attachment.path("type").asText();
-        if (!"video".equals(type) && !"audio".equals(type) && !"share".equals(type)
-                && !"ig_reel".equals(type) && !"reel".equals(type)) return;
+        if (!isReel) return;
 
-        JsonNode payload = attachment.path("payload");
-        String mediaUrl = payload.path("url").asText(null);
-        // ig_reel uses "reel_video_id" instead of "id"
-        String mediaId = payload.has("reel_video_id")
-                ? payload.path("reel_video_id").asText(null)
-                : payload.path("id").asText(null);
         ReelCanonicalizationService.CanonicalReel canonical = canonicalizationService
-                .canonicalize(mediaId, mediaUrl)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Webhook did not contain a stable media ID or usable URL"));
+                .canonicalize(finalMediaId, finalMediaUrl)
+                .orElse(new ReelCanonicalizationService.CanonicalReel("reel:" + messageId, finalMediaUrl));
 
         Reel reel;
         try {
-            reel = canonicalReelStore.resolveOrCreate(canonical, mediaId, account);
+            reel = canonicalReelStore.resolveOrCreate(canonical, finalMediaId, account);
         } catch (DataIntegrityViolationException race) {
             reel = reelRepository.findByCanonicalKey(canonical.key()).orElseThrow(() -> race);
         }
@@ -135,7 +167,7 @@ public class WebhookService {
             ReelIngestionService.IngestionResult result = ingestionService.recordRequest(
                     messageId, senderId, recipientId,
                     objectMapper.writeValueAsString(fullPayload), reel);
-            log.info("Ingested request event={} canonicalReel={} duplicate={} jobCreated={}",
+            log.info("Ingested reel request event={} canonicalReel={} duplicate={} jobCreated={}",
                     messageId, reel.getCanonicalKey(), result.duplicateEvent(), result.jobCreated());
         } catch (DataIntegrityViolationException race) {
             // A concurrent request won a single-flight constraint. Meta should retry this event.

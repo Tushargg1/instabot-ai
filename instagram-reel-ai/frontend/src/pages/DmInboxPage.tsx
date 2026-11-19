@@ -145,11 +145,16 @@ export default function DmInboxPage() {
   // Group events by contact into conversations
   const conversations: ConversationThread[] = useMemo(() => {
     const map = new Map<string, ConversationThread>()
+    const MY_ACCOUNT_ID = '17841431674180722'
 
     for (const dm of rawEvents) {
-      // Determine contact ID: if contactId provided use it; otherwise deduce
-      const contact = dm.contactId || (dm.outgoing ? dm.recipientId : dm.senderId)
-      if (!contact) continue
+      const isOutgoing = dm.outgoing !== null && dm.outgoing !== undefined
+        ? dm.outgoing
+        : dm.senderId === MY_ACCOUNT_ID
+
+      // Determine contact ID
+      const contact = dm.contactId || (isOutgoing ? dm.recipientId : dm.senderId)
+      if (!contact || contact === MY_ACCOUNT_ID) continue
 
       let thread = map.get(contact)
       if (!thread) {
@@ -159,7 +164,7 @@ export default function DmInboxPage() {
           name: dm.senderName || null,
           profilePic: dm.senderProfilePic || null,
           isFollowing: dm.isUserFollowBusiness ?? null,
-          lastMessage: dm,
+          lastMessage: { ...dm, outgoing: isOutgoing, contactId: contact },
           messages: [],
         }
         map.set(contact, thread)
@@ -173,7 +178,7 @@ export default function DmInboxPage() {
         thread.isFollowing = dm.isUserFollowBusiness
       }
 
-      thread.messages.push(dm)
+      thread.messages.push({ ...dm, outgoing: isOutgoing, contactId: contact })
     }
 
     // Sort each thread's messages chronologically (oldest to newest)
