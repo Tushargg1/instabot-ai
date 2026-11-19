@@ -67,6 +67,10 @@ public class MarketingLead {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "auto_reply_paused", nullable = false)
+    @Builder.Default
+    private Boolean autoReplyPaused = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

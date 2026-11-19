@@ -10,6 +10,7 @@ import com.example.instagramreelai.entity.InstagramAccount;
 import com.example.instagramreelai.entity.MarketingLead;
 import com.example.instagramreelai.entity.MarketingPlaybook;
 import com.example.instagramreelai.repository.InstagramAccountRepository;
+import com.example.instagramreelai.service.AutoReplyPauseService;
 import com.example.instagramreelai.service.EncryptionService;
 import com.example.instagramreelai.service.LeadProspectingAgentService;
 import com.example.instagramreelai.service.MarketingOutreachService;
@@ -32,6 +33,7 @@ public class MarketingController {
 
     private final MarketingOutreachService outreachService;
     private final LeadProspectingAgentService prospectingService;
+    private final AutoReplyPauseService autoReplyPauseService;
     private final InstagramAccountRepository accountRepository;
     private final EncryptionService encryptionService;
     private final AppProperties appProperties;
@@ -124,6 +126,12 @@ public class MarketingController {
         String input = body.getOrDefault("message", "");
         String reply = outreachService.simulateSalesResponse(id, input);
         return ResponseEntity.ok(Map.of("reply", reply));
+    }
+
+    @PostMapping("/leads/{id}/toggle-pause")
+    public ResponseEntity<Map<String, Object>> toggleLeadPause(@PathVariable UUID id) {
+        boolean isPaused = autoReplyPauseService.toggleLeadPause(id);
+        return ResponseEntity.ok(Map.of("id", id, "autoReplyPaused", isPaused));
     }
 
     // ── Playbooks & Sales Scripts Endpoints ──

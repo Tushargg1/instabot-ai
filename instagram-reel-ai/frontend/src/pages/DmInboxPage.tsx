@@ -12,7 +12,9 @@ import {
   MessageSquare,
   Bot,
   Paperclip,
-  CheckCheck
+  CheckCheck,
+  Pause,
+  Play
 } from 'lucide-react'
 
 interface DmEvent {
@@ -225,6 +227,41 @@ export default function DmInboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeConversation?.messages.length, selectedContactId])
 
+  // Paused Users Query
+  const { data: pausedUserList = [] } = useQuery<string[]>({
+    queryKey: ['paused-users'],
+    queryFn: () => apiClient.getPausedUsers(),
+  })
+
+  const pausedSet = useMemo(
+    () => new Set((pausedUserList || []).map((u) => u.toLowerCase())),
+    [pausedUserList]
+  )
+
+  const isUserPaused = (contactId: string, username?: string | null) => {
+    if (pausedSet.has(contactId.toLowerCase())) return true
+    if (username && pausedSet.has(username.toLowerCase().replace('@', ''))) return true
+    return false
+  }
+
+  // Pause & Resume Mutations
+  const pauseMutation = useMutation({
+    mutationFn: (data: { userIdentifier: string; username?: string; senderId?: string; reason?: string }) =>
+      apiClient.pauseUserAutoReply(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paused-users'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-leads'] })
+    },
+  })
+
+  const resumeMutation = useMutation({
+    mutationFn: (userIdentifier: string) => apiClient.resumeUserAutoReply(userIdentifier),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paused-users'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-leads'] })
+    },
+  })
+
   // Send manual reply mutation
   const sendMutation = useMutation({
     mutationFn: ({ recipientId, text }: { recipientId: string; text: string }) =>
@@ -300,6 +337,7 @@ export default function DmInboxPage() {
                 const isSelected = conv.contactId === selectedContactId
                 const displayName = conv.name || (conv.username ? `@${conv.username}` : conv.contactId)
                 const isOutgoingLast = conv.lastMessage.outgoing
+                const isConvPaused = isUserPaused(conv.contactId, conv.username)
 
                 return (
                   <button
@@ -324,9 +362,16 @@ export default function DmInboxPage() {
                             {conv.username ? `@${conv.username}` : displayName}
                           </span>
                         </div>
-                        <span className="text-[10px] text-gray-400 shrink-0">
-                          {formatRelativeTime(conv.lastMessage.receivedAt)}
-                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isConvPaused && (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-1.5 py-0.2 rounded">
+                              ⏸️ Paused
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400">
+                            {formatRelativeTime(conv.lastMessage.receivedAt)}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5 mb-1">
@@ -391,10 +436,68 @@ export default function DmInboxPage() {
                   </div>
                 </div>
 
-                <div className="text-right text-xs text-gray-400 shrink-0">
-                  {activeConversation.messages.length} message{activeConversation.messages.length === 1 ? '' : 's'}
+                <div className="flex items-center gap-3 shrink-0">
+                  {isUserPaused(activeConversation.contactId, activeConversation.username) ? (
+                    <button
+                      onClick={() =>
+                        resumeMutation.mutate(
+                          activeConversation.username || activeConversation.contactId
+                        )
+                      }
+                      disabled={resumeMutation.isPending}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-500 rounded-lg hover:bg-amber-600 transition-colors shadow-2xs"
+                      title="Automatic replies are currently paused for this user. Click to resume."
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      {resumeMutation.isPending ? 'Resuming...' : 'Resume Auto-Reply'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        pauseMutation.mutate({
+                          userIdentifier:
+                            activeConversation.username || activeConversation.contactId,
+                          username: activeConversation.username || undefined,
+                          senderId: activeConversation.contactId,
+                          reason: 'Manual pause from DM Inbox header',
+                        })
+                      }
+                      disabled={pauseMutation.isPending}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-amber-50 hover:text-amber-900 border border-gray-200 rounded-lg transition-colors shadow-2xs"
+                      title="Click to pause all automated replies for this user"
+                    >
+                      <Pause className="w-3.5 h-3.5 text-amber-600" />
+                      {pauseMutation.isPending ? 'Pausing...' : 'Pause Auto-Reply'}
+                    </button>
+                  )}
+
+                  <div className="text-right text-xs text-gray-400">
+                    {activeConversation.messages.length} message{activeConversation.messages.length === 1 ? '' : 's'}
+                  </div>
                 </div>
               </div>
+
+              {/* Paused Banner Notification */}
+              {isUserPaused(activeConversation.contactId, activeConversation.username) && (
+                <div className="bg-amber-50 border-b border-amber-200 px-5 py-2 flex items-center justify-between text-xs text-amber-900 font-medium shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Pause className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      Chat auto-reply is currently <strong>PAUSED</strong> for this user. No automatic replies or bot actions will be triggered.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() =>
+                      resumeMutation.mutate(
+                        activeConversation.username || activeConversation.contactId
+                      )
+                    }
+                    className="font-bold text-amber-900 underline hover:no-underline ml-3 shrink-0"
+                  >
+                    Resume
+                  </button>
+                </div>
+              )}
 
               {/* Chat Messages Body */}
               <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-gradient-to-b from-gray-50/40 to-white">

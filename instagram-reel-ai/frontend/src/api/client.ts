@@ -453,6 +453,33 @@ class ApiClient {
       method: 'POST',
     })
   }
+
+  // Auto-Reply Pausing (Per User / Lead)
+  getPausedUsers(): Promise<string[]> {
+    return this.request<string[]>('/dm-inbox/paused-users')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pauseUserAutoReply(data: { userIdentifier: string; username?: string; senderId?: string; reason?: string }): Promise<any> {
+    return this.request<any>('/dm-inbox/pause-user', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  resumeUserAutoReply(userIdentifier: string): Promise<any> {
+    return this.request<any>('/dm-inbox/resume-user', {
+      method: 'POST',
+      body: JSON.stringify({ userIdentifier }),
+    })
+  }
+
+  toggleLeadAutoReplyPause(leadId: string): Promise<{ id: string; autoReplyPaused: boolean }> {
+    return this.request<{ id: string; autoReplyPaused: boolean }>(`/marketing/leads/${leadId}/toggle-pause`, {
+      method: 'POST',
+    })
+  }
 }
 
 export const apiClient = new ApiClient()

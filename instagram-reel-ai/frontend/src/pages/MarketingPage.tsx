@@ -20,6 +20,7 @@ import {
   Target,
   X,
   Play,
+  Pause,
   BookOpen,
   FileText,
   Upload,
@@ -52,6 +53,7 @@ interface MarketingLead {
   status: 'PENDING' | 'OUTREACHED' | 'IN_CONVERSATION' | 'CONVERTED' | 'CLOSED'
   conversationHistory: string
   notes: string | null
+  autoReplyPaused?: boolean
   createdAt: string
 }
 
@@ -321,6 +323,20 @@ export default function MarketingPage() {
       queryClient.invalidateQueries({ queryKey: ['marketing-stats'] })
       if (activeLeadForChat && activeLeadForChat.id === updated.id) {
         setActiveLeadForChat(updated)
+      }
+    },
+  })
+
+  // Toggle Auto-Reply Pause Mutation
+  const toggleLeadPauseMutation = useMutation({
+    mutationFn: (id: string) => apiClient.toggleLeadAutoReplyPause(id),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['marketing-leads'] })
+      queryClient.invalidateQueries({ queryKey: ['paused-users'] })
+      if (activeLeadForChat && activeLeadForChat.id === data.id) {
+        setActiveLeadForChat((prev) =>
+          prev ? { ...prev, autoReplyPaused: data.autoReplyPaused } : null
+        )
       }
     },
   })
@@ -775,23 +791,31 @@ export default function MarketingPage() {
 
                           {/* Status */}
                           <td className="px-5 py-3.5 whitespace-nowrap">
-                            <span
-                              className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${
-                                lead.status === 'CONVERTED'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : lead.status === 'IN_CONVERSATION'
-                                  ? 'bg-purple-100 text-purple-800 animate-pulse'
-                                  : lead.status === 'OUTREACHED'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : lead.status === 'CLOSED'
-                                  ? 'bg-gray-100 text-gray-600'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {lead.status === 'IN_CONVERSATION' && <Bot className="w-3 h-3" />}
-                              {lead.status === 'CONVERTED' && <CheckCircle2 className="w-3 h-3" />}
-                              {lead.status.replace('_', ' ')}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span
+                                className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                  lead.status === 'CONVERTED'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : lead.status === 'IN_CONVERSATION'
+                                    ? 'bg-purple-100 text-purple-800 animate-pulse'
+                                    : lead.status === 'OUTREACHED'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : lead.status === 'CLOSED'
+                                    ? 'bg-gray-100 text-gray-600'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {lead.status === 'IN_CONVERSATION' && <Bot className="w-3 h-3" />}
+                                {lead.status === 'CONVERTED' && <CheckCircle2 className="w-3 h-3" />}
+                                {lead.status.replace('_', ' ')}
+                              </span>
+                              {lead.autoReplyPaused && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                  <Pause className="w-2.5 h-2.5 text-amber-600" />
+                                  Bot Paused
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-gray-400 mt-1">
                               {formatRelativeTime(lead.lastInteractionAt || lead.outreachSentAt)}
                             </div>
@@ -799,6 +823,34 @@ export default function MarketingPage() {
 
                           {/* Actions */}
                           <td className="px-5 py-3.5 whitespace-nowrap text-right space-x-2">
+                            {/* Pause / Resume Auto-Reply Button in Front of each user */}
+                            <button
+                              onClick={() => toggleLeadPauseMutation.mutate(lead.id)}
+                              disabled={toggleLeadPauseMutation.isPending}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors shadow-2xs ${
+                                lead.autoReplyPaused
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200'
+                              }`}
+                              title={
+                                lead.autoReplyPaused
+                                  ? 'Auto-reply is paused for this lead. Click to resume bot.'
+                                  : 'Pause chat auto-reply for this lead so no automatic replies are sent'
+                              }
+                            >
+                              {lead.autoReplyPaused ? (
+                                <>
+                                  <Play className="w-3 h-3 text-amber-700" />
+                                  Resume Bot
+                                </>
+                              ) : (
+                                <>
+                                  <Pause className="w-3 h-3 text-amber-600" />
+                                  Pause Bot
+                                </>
+                              )}
+                            </button>
+
                             {lead.status === 'PENDING' ? (
                               <div className="inline-flex items-center gap-1.5">
                                 <button
@@ -1692,6 +1744,33 @@ export default function MarketingPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleLeadPauseMutation.mutate(activeLeadForChat.id)}
+                  disabled={toggleLeadPauseMutation.isPending}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors shadow-2xs ${
+                    activeLeadForChat.autoReplyPaused
+                      ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-50 hover:text-amber-900 hover:border-amber-200'
+                  }`}
+                  title={
+                    activeLeadForChat.autoReplyPaused
+                      ? 'Auto-reply is paused for this lead. Click to resume bot.'
+                      : 'Click to pause automatic bot replies for this lead'
+                  }
+                >
+                  {activeLeadForChat.autoReplyPaused ? (
+                    <>
+                      <Play className="w-3.5 h-3.5 text-amber-700" />
+                      Resume Bot
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="w-3.5 h-3.5 text-amber-600" />
+                      Pause Bot
+                    </>
+                  )}
+                </button>
+
                 <select
                   value={activeLeadForChat.status}
                   onChange={(e) =>
@@ -1717,6 +1796,22 @@ export default function MarketingPage() {
                 </button>
               </div>
             </div>
+
+            {/* Auto-Reply Paused Alert */}
+            {activeLeadForChat.autoReplyPaused && (
+              <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-900 font-medium shrink-0">
+                <span className="flex items-center gap-1.5">
+                  <Pause className="w-4 h-4 text-amber-600 shrink-0" />
+                  Chat auto-reply is currently <strong>PAUSED</strong> for this lead. The AI bot will not send automatic responses.
+                </span>
+                <button
+                  onClick={() => toggleLeadPauseMutation.mutate(activeLeadForChat.id)}
+                  className="font-bold underline hover:no-underline ml-2 text-amber-900 shrink-0"
+                >
+                  Resume Bot
+                </button>
+              </div>
+            )}
 
             {/* Context & Playbook Banner */}
             <div className="px-4 py-2.5 bg-indigo-50/60 border-b border-indigo-100 text-xs text-gray-700 space-y-1">

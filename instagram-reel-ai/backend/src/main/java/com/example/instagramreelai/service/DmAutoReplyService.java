@@ -37,6 +37,7 @@ public class DmAutoReplyService {
     private final ReelConversationService reelConversationService;
     private final LeadCaptureService leadCaptureService;
     private final MarketingOutreachService marketingOutreachService;
+    private final AutoReplyPauseService autoReplyPauseService;
 
     // ------------------------------------------------------------------ CRUD
 
@@ -123,6 +124,12 @@ public class DmAutoReplyService {
         // Don't reply to ourselves
         if (accountId.equals(senderId)) {
             log.debug("DM auto-reply: skipping echo (sender == account)");
+            return;
+        }
+
+        // Check if auto-reply is paused for this user
+        if (autoReplyPauseService.isAutoReplyPaused(senderId)) {
+            log.info("DM auto-reply is PAUSED for senderId={}. Skipping all automated replies.", senderId);
             return;
         }
 
