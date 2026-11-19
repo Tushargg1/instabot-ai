@@ -13,18 +13,19 @@ import {
   Mail
 } from 'lucide-react'
 
-interface ConversionMetrics {
+interface ConversionStats {
   totalRequests: number
-  uniqueUsers: number
-  nonFollowerRequests: number
-  convertedFollowers: number
+  totalUniqueUsers: number
+  nonFollowerTeasersSent: number
+  convertedToFollowers: number
   conversionRatePercentage: number
-  leadsCaptured: number
+  totalLeadsCaptured: number
 }
 
 interface TrendingTopic {
   category: string
-  mentionCount: number
+  subCategory?: string
+  count: number
   percentage: number
 }
 
@@ -40,7 +41,7 @@ interface Superfan {
 }
 
 interface AnalyticsData {
-  conversion: ConversionMetrics
+  conversionStats: ConversionStats
   trendingTopics: TrendingTopic[]
   superfans: Superfan[]
 }
@@ -67,7 +68,7 @@ export default function AnalyticsPage() {
     staleTime: 30000,
   })
 
-  const conversion = data?.conversion
+  const conversion = data?.conversionStats
   const topics = data?.trendingTopics || []
   const superfans = data?.superfans || []
 
@@ -120,8 +121,8 @@ export default function AnalyticsPage() {
                 </p>
               </div>
               <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between text-xs text-gray-600">
-                <span>{conversion?.convertedFollowers ?? 0} converted</span>
-                <span>{conversion?.nonFollowerRequests ?? 0} teasers sent</span>
+                <span>{conversion?.convertedToFollowers ?? 0} converted</span>
+                <span>{conversion?.nonFollowerTeasersSent ?? 0} teasers sent</span>
               </div>
             </div>
 
@@ -136,7 +137,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="mt-3">
                 <span className="text-3xl font-extrabold text-gray-900">
-                  {conversion?.leadsCaptured ?? 0}
+                  {conversion?.totalLeadsCaptured ?? 0}
                 </span>
                 <p className="text-xs text-gray-500 mt-1">
                   Verified emails collected in DMs
@@ -159,7 +160,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="mt-3">
                 <span className="text-3xl font-extrabold text-gray-900">
-                  {conversion?.uniqueUsers ?? 0}
+                  {conversion?.totalUniqueUsers ?? 0}
                 </span>
                 <p className="text-xs text-gray-500 mt-1">
                   Unique creators & followers served
@@ -182,7 +183,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="mt-3">
                 <span className="text-3xl font-extrabold text-gray-900">
-                  +{conversion?.convertedFollowers ?? 0}
+                  +{conversion?.convertedToFollowers ?? 0}
                 </span>
                 <p className="text-xs text-gray-500 mt-1">
                   New followers unlocked via bot
@@ -219,15 +220,15 @@ export default function AnalyticsPage() {
                 </div>
               ) : (
                 <div className="space-y-4 pt-2">
-                  {topics.map((t) => (
-                    <div key={t.category} className="space-y-1.5">
+                  {topics.map((t, idx) => (
+                    <div key={`${t.category}-${t.subCategory}-${idx}`} className="space-y-1.5">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-gray-800 capitalize">
-                          {t.category.replace(/_/g, ' ')}
+                        <span className="font-medium text-gray-800">
+                          {t.category}{t.subCategory ? ` › ${t.subCategory}` : ''}
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500 font-medium">
-                            {t.mentionCount} items
+                            {t.count} items
                           </span>
                           <span className="text-sm font-bold text-indigo-600">
                             {t.percentage}%
