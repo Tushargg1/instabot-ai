@@ -18,6 +18,7 @@ import DmInboxPage from './pages/DmInboxPage'
 import KnowledgeHubPage from './pages/KnowledgeHubPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import LeadsPage from './pages/LeadsPage'
+import MarketingPage from './pages/MarketingPage'
 
 export default function App() {
   const { isAuthenticated, username, role, login, register, demoLogin, logout } = useAuth()
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/" element={<OverviewPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/leads" element={<LeadsPage />} />
+            <Route path="/marketing" element={<MarketingPage />} />
             <Route path="/knowledge" element={<KnowledgeHubPage />} />
             <Route path="/reels" element={<ReelsPage />} />
             <Route path="/reels/:id" element={<ReelDetailPage />} />

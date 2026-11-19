@@ -36,6 +36,7 @@ public class DmAutoReplyService {
     private final InstagramUserProfileService userProfileService;
     private final ReelConversationService reelConversationService;
     private final LeadCaptureService leadCaptureService;
+    private final MarketingOutreachService marketingOutreachService;
 
     // ------------------------------------------------------------------ CRUD
 
@@ -155,6 +156,17 @@ public class DmAutoReplyService {
             }
         } catch (Exception e) {
             log.warn("Lead capture error for sender={}: {}", senderId, e.getMessage());
+        }
+
+        // ── 0.5 Check for Marketing & Outreach AI Sales Conversation ──
+        try {
+            Optional<String> marketingReply = marketingOutreachService.processMarketingLeadReply(senderId, text, accountId, accessToken);
+            if (marketingReply.isPresent()) {
+                log.info("Marketing AI Sales Bot responded to target prospect sender={}", senderId);
+                return;
+            }
+        } catch (Exception e) {
+            log.warn("Marketing sales conversation error for sender={}: {}", senderId, e.getMessage());
         }
 
         // ── 1. Conversational AI Q&A or Unlock check on recently shared Reel ──

@@ -312,6 +312,70 @@ class ApiClient {
     if (query) params.set('query', query)
     return this.request<any>(`/leads?${params}`)
   }
+
+  // Marketing & Outreach Campaigns
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMarketingLeads(query?: string, status?: string, tag?: string, page = 0, size = 20): Promise<any> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) })
+    if (query) params.set('query', query)
+    if (status) params.set('status', status)
+    if (tag) params.set('tag', tag)
+    return this.request<any>(`/marketing/leads?${params}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMarketingLead(id: string): Promise<any> {
+    return this.request<any>(`/marketing/leads/${id}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createMarketingLead(data: any): Promise<any> {
+    return this.request<any>('/marketing/leads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateMarketingLead(id: string, data: any): Promise<any> {
+    return this.request<any>(`/marketing/leads/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteMarketingLead(id: string): Promise<void> {
+    return this.request<void>(`/marketing/leads/${id}`, { method: 'DELETE' })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMarketingStats(): Promise<any> {
+    return this.request<any>('/marketing/stats')
+  }
+
+  getMarketingTags(): Promise<string[]> {
+    return this.request<string[]>('/marketing/tags')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  generateFirstMessage(data: any): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/marketing/leads/generate-first-message', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sendMarketingOutreach(id: string): Promise<any> {
+    return this.request<any>(`/marketing/leads/${id}/send-outreach`, { method: 'POST' })
+  }
+
+  simulateMarketingChat(id: string, message: string): Promise<{ reply: string }> {
+    return this.request<{ reply: string }>(`/marketing/leads/${id}/simulate`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    })
+  }
 }
 
 export const apiClient = new ApiClient()

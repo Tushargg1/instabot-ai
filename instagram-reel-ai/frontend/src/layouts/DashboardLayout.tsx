@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Film, Cog, Instagram, Activity, LogOut, Box, HandMetal, Server, Link2, MessageSquare, Inbox, Sparkles, BarChart3, Mail } from 'lucide-react'
+import { LayoutDashboard, Film, Cog, Instagram, Activity, LogOut, Box, HandMetal, Server, Link2, MessageSquare, Inbox, Sparkles, BarChart3, Mail, Megaphone } from 'lucide-react'
 
 interface Props {
   username: string
@@ -11,6 +11,7 @@ const navItems = [
   { path: '/', label: 'Overview', icon: LayoutDashboard },
   { path: '/analytics', label: 'Analytics & Growth', icon: BarChart3 },
   { path: '/leads', label: 'Leads & Contacts', icon: Mail },
+  { path: '/marketing', label: 'Marketing & Outreach', icon: Megaphone },
   { path: '/knowledge', label: 'Knowledge Hub', icon: Sparkles },
   { path: '/reels', label: 'Reel Knowledge', icon: Film },
   { path: '/resources', label: 'Resources', icon: Box },
