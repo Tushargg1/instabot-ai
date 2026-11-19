@@ -413,6 +413,46 @@ class ApiClient {
       body: formData,
     })
   }
+
+  // AI Prospecting Agent
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getDiscoveredProspects(status?: string, flowTag?: string): Promise<any[]> {
+    const params = new URLSearchParams()
+    if (status) params.append('status', status)
+    if (flowTag) params.append('flowTag', flowTag)
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return this.request<any[]>(`/marketing/prospects${qs}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  discoverProspects(data: { flowTag?: string; criteria?: string; count?: number }): Promise<any[]> {
+    return this.request<any[]>('/marketing/prospects/discover', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sendProspectIntro(id: string, introText?: string): Promise<any> {
+    return this.request<any>(`/marketing/prospects/${id}/send-intro`, {
+      method: 'POST',
+      body: JSON.stringify({ introText }),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  bulkSendProspectIntro(ids: string[]): Promise<any[]> {
+    return this.request<any[]>('/marketing/prospects/bulk-send-intro', {
+      method: 'POST',
+      body: JSON.stringify(ids),
+    })
+  }
+
+  rejectProspect(id: string): Promise<void> {
+    return this.request<void>(`/marketing/prospects/${id}/reject`, {
+      method: 'POST',
+    })
+  }
 }
 
 export const apiClient = new ApiClient()

@@ -25,7 +25,9 @@ import {
   Upload,
   ShieldCheck,
   Trash2,
-  Edit3
+  Edit3,
+  Compass,
+  Users
 } from 'lucide-react'
 
 interface ChatMessage {
@@ -63,6 +65,21 @@ interface MarketingPlaybook {
   createdAt: string
 }
 
+interface DiscoveredProspect {
+  id: string
+  flowTag: string
+  instagramUsername: string
+  contactName: string | null
+  avatarUrl: string | null
+  profileBio: string | null
+  nicheSignals: string | null
+  estimatedFollowers: string | null
+  proposedIntroText: string
+  matchScore: number | null
+  status: 'DISCOVERED' | 'APPROVED' | 'REJECTED'
+  createdAt: string
+}
+
 interface MarketingStats {
   totalLeads: number
   pending: number
@@ -97,7 +114,7 @@ function formatRelativeTime(iso: string | null) {
 
 export default function MarketingPage() {
   const queryClient = useQueryClient()
-  const [activeMainTab, setActiveMainTab] = useState<'leads' | 'playbooks'>('leads')
+  const [activeMainTab, setActiveMainTab] = useState<'leads' | 'playbooks' | 'prospects'>('leads')
 
   // Search & Filter
   const [search, setSearch] = useState('')
@@ -108,11 +125,25 @@ export default function MarketingPage() {
   // Modals & Panels
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false)
   const [isAddPlaybookModalOpen, setIsAddPlaybookModalOpen] = useState(false)
+  const [isRunAgentModalOpen, setIsRunAgentModalOpen] = useState(false)
   const [activeLeadForChat, setActiveLeadForChat] = useState<MarketingLead | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Simulation test input
   const [simulatedText, setSimulatedText] = useState('')
+
+  // Prospect State & Filters
+  const [prospectFilterTag, setProspectFilterTag] = useState('')
+  const [prospectFilterStatus, setProspectFilterStatus] = useState('DISCOVERED')
+  const [selectedProspectIds, setSelectedProspectIds] = useState<string[]>([])
+  const [editedIntros, setEditedIntros] = useState<Record<string, string>>({})
+  const [sendingProspectId, setSendingProspectId] = useState<string | null>(null)
+
+  const [agentFormData, setAgentFormData] = useState({
+    flowTag: 'Fitness Creators',
+    criteria: '',
+    count: 4,
+  })
 
   // Form State for New Lead
   const [leadFormData, setLeadFormData] = useState({
@@ -214,6 +245,58 @@ export default function MarketingPage() {
     mutationFn: (id: string) => apiClient.deleteMarketingPlaybook(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['marketing-playbooks'] })
+    },
+  })
+
+  // Fetch Discovered Prospects
+  const { data: prospects = [], isLoading: isLoadingProspects } = useQuery<DiscoveredProspect[]>({
+    queryKey: ['discovered-prospects', prospectFilterStatus, prospectFilterTag],
+    queryFn: () => apiClient.getDiscoveredProspects(prospectFilterStatus || undefined, prospectFilterTag || undefined),
+  })
+
+  // Run Agent Mutation
+  const runAgentMutation = useMutation({
+    mutationFn: (data: typeof agentFormData) => apiClient.discoverProspects(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['discovered-prospects'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-tags'] })
+      setIsRunAgentModalOpen(false)
+    },
+  })
+
+  // Send Intro Mutation
+  const sendIntroMutation = useMutation({
+    mutationFn: ({ id, introText }: { id: string; introText?: string }) => {
+      setSendingProspectId(id)
+      return apiClient.sendProspectIntro(id, introText)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['discovered-prospects'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-leads'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-stats'] })
+      setSendingProspectId(null)
+    },
+    onError: () => {
+      setSendingProspectId(null)
+    },
+  })
+
+  // Bulk Send Intro Mutation
+  const bulkSendIntroMutation = useMutation({
+    mutationFn: (ids: string[]) => apiClient.bulkSendProspectIntro(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['discovered-prospects'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-leads'] })
+      queryClient.invalidateQueries({ queryKey: ['marketing-stats'] })
+      setSelectedProspectIds([])
+    },
+  })
+
+  // Reject Prospect Mutation
+  const rejectProspectMutation = useMutation({
+    mutationFn: (id: string) => apiClient.rejectProspect(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['discovered-prospects'] })
     },
   })
 
@@ -374,7 +457,7 @@ export default function MarketingPage() {
                 Add Target Lead
               </button>
             </>
-          ) : (
+          ) : activeMainTab === 'playbooks' ? (
             <button
               onClick={() => {
                 setPlaybookFormData({
@@ -392,15 +475,23 @@ export default function MarketingPage() {
               <Plus className="w-4 h-4" />
               Add Flow Playbook / PDF
             </button>
+          ) : (
+            <button
+              onClick={() => setIsRunAgentModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all shadow-sm"
+            >
+              <Sparkles className="w-4 h-4" />
+              Run Discovery Agent
+            </button>
           )}
         </div>
       </div>
 
-      {/* Top Nav Switcher: Leads CRM vs Playbooks Knowledge */}
-      <div className="flex border-b border-gray-200 gap-8">
+      {/* Top Nav Switcher: Leads CRM vs Playbooks Knowledge vs AI Prospector */}
+      <div className="flex border-b border-gray-200 gap-8 overflow-x-auto">
         <button
           onClick={() => setActiveMainTab('leads')}
-          className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors border-b-2 shrink-0 ${
             activeMainTab === 'leads'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -412,7 +503,7 @@ export default function MarketingPage() {
 
         <button
           onClick={() => setActiveMainTab('playbooks')}
-          className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors border-b-2 shrink-0 ${
             activeMainTab === 'playbooks'
               ? 'border-indigo-600 text-indigo-600'
               : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -422,6 +513,22 @@ export default function MarketingPage() {
           Marketing Playbooks & PDFs ({playbooks.length})
           <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-full">
             Strict AI Rules
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('prospects')}
+          className={`pb-3 text-sm font-bold flex items-center gap-2 transition-colors border-b-2 shrink-0 ${
+            activeMainTab === 'prospects'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <Compass className="w-4 h-4 text-purple-600" />
+          AI Lead Prospector ({prospects.filter((p) => p.status === 'DISCOVERED').length})
+          <span className="text-[10px] bg-purple-100 text-purple-800 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+            <Sparkles className="w-2.5 h-2.5" />
+            Autonomous Agent
           </span>
         </button>
       </div>
@@ -734,7 +841,7 @@ export default function MarketingPage() {
             )}
           </div>
         </>
-      ) : (
+      ) : activeMainTab === 'playbooks' ? (
         /* ── Playbooks & Knowledge Tab ── */
         <div className="space-y-6">
           <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-5 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -845,6 +952,446 @@ export default function MarketingPage() {
               ))}
             </div>
           )}
+        </div>
+      ) : (
+        /* ── AI Lead Prospector Tab ── */
+        <div className="space-y-6">
+          {/* Hero Banner */}
+          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-indigo-800 rounded-2xl p-6 text-white shadow-md relative overflow-hidden">
+            <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-8">
+              <Compass className="w-64 h-64 text-white" />
+            </div>
+            <div className="relative z-10 max-w-2xl space-y-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white/20 text-purple-100 backdrop-blur-xs">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                Autonomous AI Lead Discovery Agent
+              </span>
+              <h2 className="text-xl font-bold tracking-tight">
+                Discover High-Value Leads for Your Marketing Flows
+              </h2>
+              <p className="text-xs text-purple-100/90 leading-relaxed">
+                The agent scans your target niche based on your playbook talk tracks, identifies creator pain points, and drafts personalized intro icebreakers. Click <strong>"Send Intro Text"</strong> on any prospect, and our autonomous sales bot takes over replies to close the deal!
+              </p>
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  onClick={() => setIsRunAgentModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-indigo-900 bg-white rounded-lg hover:bg-purple-50 transition-colors shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  Run Prospecting Agent
+                </button>
+                <span className="text-xs text-purple-200">
+                  {prospects.filter((p) => p.status === 'DISCOVERED').length} prospects awaiting your review
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls & Filter Bar */}
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Tag / Flow Selector */}
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-gray-400" />
+                <select
+                  value={prospectFilterTag}
+                  onChange={(e) => setProspectFilterTag(e.target.value)}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 font-medium text-gray-700"
+                >
+                  <option value="">All Marketing Flows</option>
+                  {tags.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Tabs */}
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-xs font-medium text-gray-600">
+                <button
+                  onClick={() => setProspectFilterStatus('DISCOVERED')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    prospectFilterStatus === 'DISCOVERED'
+                      ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                      : 'hover:text-gray-900'
+                  }`}
+                >
+                  New Prospects ({prospects.filter((p) => p.status === 'DISCOVERED').length})
+                </button>
+                <button
+                  onClick={() => setProspectFilterStatus('APPROVED')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    prospectFilterStatus === 'APPROVED'
+                      ? 'bg-white text-emerald-700 font-bold shadow-xs'
+                      : 'hover:text-gray-900'
+                  }`}
+                >
+                  Intro Sent ({prospects.filter((p) => p.status === 'APPROVED').length})
+                </button>
+                <button
+                  onClick={() => setProspectFilterStatus('')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    prospectFilterStatus === ''
+                      ? 'bg-white text-gray-900 font-bold shadow-xs'
+                      : 'hover:text-gray-900'
+                  }`}
+                >
+                  All ({prospects.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Bulk Action Bar */}
+            {selectedProspectIds.length > 0 && (
+              <div className="flex items-center gap-3 bg-purple-50 px-3.5 py-1.5 rounded-lg border border-purple-200">
+                <span className="text-xs font-bold text-purple-900">
+                  {selectedProspectIds.length} selected
+                </span>
+                <button
+                  onClick={() => bulkSendIntroMutation.mutate(selectedProspectIds)}
+                  disabled={bulkSendIntroMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-2xs"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {bulkSendIntroMutation.isPending ? 'Sending...' : `Send Intro to Selected (${selectedProspectIds.length})`}
+                </button>
+                <button
+                  onClick={() => setSelectedProspectIds([])}
+                  className="text-xs text-purple-600 hover:text-purple-800 underline font-medium"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Prospects Grid */}
+          {isLoadingProspects ? (
+            <div className="flex justify-center items-center py-20 text-gray-400">
+              <RefreshCw className="w-8 h-8 animate-spin" />
+            </div>
+          ) : prospects.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-3">
+              <Compass className="w-12 h-12 text-purple-400 mx-auto" />
+              <h3 className="text-base font-semibold text-gray-800">
+                No prospects found for this filter
+              </h3>
+              <p className="text-xs text-gray-500 max-w-md mx-auto">
+                Launch the AI Lead Discovery Agent to scour Instagram for accounts that match your marketing flow and generate personalized intro pitches.
+              </p>
+              <button
+                onClick={() => setIsRunAgentModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-xs"
+              >
+                <Sparkles className="w-4 h-4" />
+                Launch Discovery Agent
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {prospects.map((prospect) => {
+                const currentIntro =
+                  editedIntros[prospect.id] !== undefined
+                    ? editedIntros[prospect.id]
+                    : prospect.proposedIntroText
+                const isSelected = selectedProspectIds.includes(prospect.id)
+                const isSending = sendingProspectId === prospect.id
+
+                return (
+                  <div
+                    key={prospect.id}
+                    className={`bg-white rounded-xl border p-5 shadow-xs flex flex-col justify-between space-y-4 transition-all ${
+                      isSelected
+                        ? 'border-purple-400 ring-2 ring-purple-100'
+                        : 'border-gray-200 hover:border-indigo-200'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      {/* Card Top: Checkbox, Profile, Badges */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          {prospect.status === 'DISCOVERED' && (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedProspectIds((prev) => [...prev, prospect.id])
+                                } else {
+                                  setSelectedProspectIds((prev) =>
+                                    prev.filter((id) => id !== prospect.id)
+                                  )
+                                }
+                              }}
+                              className="mt-1 rounded text-purple-600 focus:ring-purple-500 border-gray-300"
+                            />
+                          )}
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-2xs">
+                            {prospect.contactName
+                              ? prospect.contactName.charAt(0).toUpperCase()
+                              : prospect.instagramUsername.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-gray-900 text-sm">
+                                {prospect.contactName || prospect.instagramUsername}
+                              </h4>
+                              <a
+                                href={`https://instagram.com/${prospect.instagramUsername}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 font-medium"
+                              >
+                                @{prospect.instagramUsername}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-500 flex-wrap">
+                              <span className="inline-flex items-center gap-1 font-medium">
+                                <Users className="w-3 h-3 text-gray-400" />
+                                {prospect.estimatedFollowers || '10K - 50K'} followers
+                              </span>
+                              <span>•</span>
+                              <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[11px] font-semibold">
+                                <Tag className="w-2.5 h-2.5" />
+                                {prospect.flowTag}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Fit Score & Status */}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ⭐ {prospect.matchScore || 92}% Match
+                          </span>
+                          {prospect.status === 'APPROVED' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Intro Sent
+                            </span>
+                          ) : prospect.status === 'REJECTED' ? (
+                            <span className="text-[11px] font-medium text-gray-400">
+                              Dismissed
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                              Ready to Outreach
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bio */}
+                      {prospect.profileBio && (
+                        <p className="text-xs text-gray-600 italic bg-gray-50/80 p-2.5 rounded-lg border border-gray-100">
+                          "{prospect.profileBio}"
+                        </p>
+                      )}
+
+                      {/* ICP Match Signals / Pain Point */}
+                      {prospect.nicheSignals && (
+                        <div className="bg-purple-50/60 border border-purple-100 rounded-lg p-2.5 text-xs text-purple-950 font-medium">
+                          <span className="font-bold text-purple-900 block mb-0.5 flex items-center gap-1">
+                            🎯 Detected Opportunity / Pain Point:
+                          </span>
+                          {prospect.nicheSignals}
+                        </div>
+                      )}
+
+                      {/* Proposed Intro DM */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-gray-700 flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                            Proposed Intro DM (Tailored Icebreaker):
+                          </span>
+                          <span className="text-[11px] text-gray-400">
+                            {currentIntro.length} / 240 chars
+                          </span>
+                        </div>
+                        {prospect.status === 'DISCOVERED' ? (
+                          <textarea
+                            rows={3}
+                            value={currentIntro}
+                            onChange={(e) =>
+                              setEditedIntros((prev) => ({
+                                ...prev,
+                                [prospect.id]: e.target.value,
+                              }))
+                            }
+                            className="w-full text-xs p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white leading-relaxed text-gray-800"
+                            placeholder="Opening message to initiate conversation..."
+                          />
+                        ) : (
+                          <div className="text-xs p-2.5 bg-gray-50 rounded-lg border border-gray-200 text-gray-700 italic">
+                            "{currentIntro}"
+                          </div>
+                        )}
+                        <p className="text-[11px] text-gray-400">
+                          💡 Once sent, any reply from @{prospect.instagramUsername} will be automatically handled by our AI Sales Closer using your flow playbook.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-gray-400">
+                        Discovered {formatRelativeTime(prospect.createdAt)}
+                      </span>
+
+                      {prospect.status === 'DISCOVERED' ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => rejectProspectMutation.mutate(prospect.id)}
+                            disabled={isSending || rejectProspectMutation.isPending}
+                            className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-rose-600 rounded-lg hover:bg-gray-100 transition-colors"
+                          >
+                            Dismiss
+                          </button>
+                          <button
+                            onClick={() =>
+                              sendIntroMutation.mutate({
+                                id: prospect.id,
+                                introText: currentIntro,
+                              })
+                            }
+                            disabled={isSending || sendIntroMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 transition-all shadow-xs"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            {isSending ? 'Sending Intro...' : 'Send Intro Text'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setActiveMainTab('leads')
+                              setSearch(prospect.instagramUsername)
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+                          >
+                            <Target className="w-3.5 h-3.5" />
+                            View in CRM Pipeline
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Run AI Lead Discovery Agent Modal ── */}
+      {isRunAgentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                Scout Clients with AI Discovery Agent
+              </h2>
+              <button
+                onClick={() => setIsRunAgentModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Our agent searches for realistic, high-potential Instagram clients based on your marketing flow playbook, extracts pain points, and crafts custom intro icebreakers.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                runAgentMutation.mutate(agentFormData)
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Marketing Flow Tag *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={agentFormData.flowTag}
+                  onChange={(e) =>
+                    setAgentFormData((prev) => ({ ...prev, flowTag: e.target.value }))
+                  }
+                  placeholder="e.g. Fitness Creators, SaaS Founders, Real Estate"
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  The agent will ground its prospecting strategy in this flow's playbook.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Target Audience / ICP Criteria (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={agentFormData.criteria}
+                  onChange={(e) =>
+                    setAgentFormData((prev) => ({ ...prev, criteria: e.target.value }))
+                  }
+                  placeholder="e.g. Workout trainers with 15k-80k followers who post weekly podcasts or workouts and struggle with video clipping"
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Number of Prospects to Discover
+                </label>
+                <select
+                  value={agentFormData.count}
+                  onChange={(e) =>
+                    setAgentFormData((prev) => ({
+                      ...prev,
+                      count: parseInt(e.target.value) || 4,
+                    }))
+                  }
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                >
+                  <option value={2}>2 Prospects</option>
+                  <option value={4}>4 Prospects (Recommended)</option>
+                  <option value={6}>6 Prospects</option>
+                  <option value={8}>8 Prospects</option>
+                  <option value={10}>10 Prospects</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsRunAgentModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={runAgentMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {runAgentMutation.isPending
+                    ? 'Agent Scouring Niche...'
+                    : 'Launch Discovery Agent'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

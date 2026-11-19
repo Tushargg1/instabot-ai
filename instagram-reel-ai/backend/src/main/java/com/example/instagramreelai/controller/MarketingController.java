@@ -1,14 +1,17 @@
 package com.example.instagramreelai.controller;
 
 import com.example.instagramreelai.config.AppProperties;
+import com.example.instagramreelai.dto.DiscoverProspectsRequest;
 import com.example.instagramreelai.dto.MarketingLeadRequest;
 import com.example.instagramreelai.dto.MarketingPlaybookRequest;
 import com.example.instagramreelai.dto.MarketingStatsDto;
+import com.example.instagramreelai.entity.DiscoveredProspect;
 import com.example.instagramreelai.entity.InstagramAccount;
 import com.example.instagramreelai.entity.MarketingLead;
 import com.example.instagramreelai.entity.MarketingPlaybook;
 import com.example.instagramreelai.repository.InstagramAccountRepository;
 import com.example.instagramreelai.service.EncryptionService;
+import com.example.instagramreelai.service.LeadProspectingAgentService;
 import com.example.instagramreelai.service.MarketingOutreachService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,6 +31,7 @@ import java.util.UUID;
 public class MarketingController {
 
     private final MarketingOutreachService outreachService;
+    private final LeadProspectingAgentService prospectingService;
     private final InstagramAccountRepository accountRepository;
     private final EncryptionService encryptionService;
     private final AppProperties appProperties;
@@ -166,5 +170,40 @@ public class MarketingController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", "Failed to parse PDF: " + e.getMessage()));
         }
+    }
+
+    // ── AI Lead Prospecting Agent Endpoints ──
+
+    @GetMapping("/prospects")
+    public ResponseEntity<List<DiscoveredProspect>> getProspects(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String flowTag
+    ) {
+        return ResponseEntity.ok(prospectingService.getProspects(status, flowTag));
+    }
+
+    @PostMapping("/prospects/discover")
+    public ResponseEntity<List<DiscoveredProspect>> discoverProspects(@RequestBody DiscoverProspectsRequest req) {
+        return ResponseEntity.ok(prospectingService.runProspectingAgent(req));
+    }
+
+    @PostMapping("/prospects/{id}/send-intro")
+    public ResponseEntity<MarketingLead> sendIntro(
+            @PathVariable UUID id,
+            @RequestBody(required = false) Map<String, String> body
+    ) {
+        String customText = body != null ? body.get("introText") : null;
+        return ResponseEntity.ok(prospectingService.approveAndSendIntro(id, customText));
+    }
+
+    @PostMapping("/prospects/bulk-send-intro")
+    public ResponseEntity<List<MarketingLead>> bulkSendIntro(@RequestBody List<UUID> ids) {
+        return ResponseEntity.ok(prospectingService.bulkApproveAndSend(ids));
+    }
+
+    @PostMapping("/prospects/{id}/reject")
+    public ResponseEntity<Void> rejectProspect(@PathVariable UUID id) {
+        prospectingService.rejectProspect(id);
+        return ResponseEntity.noContent().build();
     }
 }
