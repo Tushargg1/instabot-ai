@@ -30,8 +30,10 @@ class ApiClient {
 
   private async execute<T>(path: string, options: RequestInit, authenticated: boolean): Promise<T> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
+    }
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json'
     }
     if (authenticated && this.token) headers.Authorization = `Bearer ${this.token}`
 
@@ -374,6 +376,41 @@ class ApiClient {
     return this.request<{ reply: string }>(`/marketing/leads/${id}/simulate`, {
       method: 'POST',
       body: JSON.stringify({ message }),
+    })
+  }
+
+  // Playbooks & Knowledge
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMarketingPlaybooks(): Promise<any[]> {
+    return this.request<any[]>('/marketing/playbooks')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createMarketingPlaybook(data: any): Promise<any> {
+    return this.request<any>('/marketing/playbooks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateMarketingPlaybook(id: string, data: any): Promise<any> {
+    return this.request<any>(`/marketing/playbooks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteMarketingPlaybook(id: string): Promise<void> {
+    return this.request<void>(`/marketing/playbooks/${id}`, { method: 'DELETE' })
+  }
+
+  uploadMarketingPlaybookPdf(file: File): Promise<{ filename: string; extractedText: string }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    return this.request<{ filename: string; extractedText: string }>('/marketing/playbooks/upload-pdf', {
+      method: 'POST',
+      body: formData,
     })
   }
 }

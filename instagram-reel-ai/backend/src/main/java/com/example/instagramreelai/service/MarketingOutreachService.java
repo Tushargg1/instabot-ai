@@ -3,11 +3,14 @@ package com.example.instagramreelai.service;
 import com.example.instagramreelai.config.AppProperties;
 import com.example.instagramreelai.dto.MarketingChatMessage;
 import com.example.instagramreelai.dto.MarketingLeadRequest;
+import com.example.instagramreelai.dto.MarketingPlaybookRequest;
 import com.example.instagramreelai.dto.MarketingStatsDto;
 import com.example.instagramreelai.entity.MarketingLead;
+import com.example.instagramreelai.entity.MarketingPlaybook;
 import com.example.instagramreelai.instagram.InstagramClient;
 import com.example.instagramreelai.instagram.InstagramUserProfile;
 import com.example.instagramreelai.repository.MarketingLeadRepository;
+import com.example.instagramreelai.repository.MarketingPlaybookRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +38,7 @@ public class MarketingOutreachService {
     private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
 
     private final MarketingLeadRepository leadRepository;
+    private final MarketingPlaybookRepository playbookRepository;
     private final InstagramUserProfileService userProfileService;
     private final InstagramClient instagramClient;
     private final AppProperties appProperties;
@@ -136,6 +140,57 @@ public class MarketingOutreachService {
     @Transactional(readOnly = true)
     public List<String> getTags() {
         return leadRepository.findDistinctTags();
+    }
+
+    // ── Playbooks & Sales Knowledge per Flow / Tag ──
+
+    @Transactional(readOnly = true)
+    public List<MarketingPlaybook> getPlaybooks() {
+        return playbookRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<MarketingPlaybook> getPlaybook(UUID id) {
+        return playbookRepository.findById(id);
+    }
+
+    @Transactional
+    public MarketingPlaybook createPlaybook(MarketingPlaybookRequest req) {
+        MarketingPlaybook playbook = MarketingPlaybook.builder()
+                .title(req.getTitle())
+                .tag(req.getTag() != null && !req.getTag().isBlank() ? req.getTag().trim() : "General")
+                .content(req.getContent() != null ? req.getContent().trim() : "")
+                .pdfFilename(req.getPdfFilename())
+                .strictGuidelines(req.getStrictGuidelines() != null ? req.getStrictGuidelines() : true)
+                .build();
+        return playbookRepository.save(playbook);
+    }
+
+    @Transactional
+    public MarketingPlaybook updatePlaybook(UUID id, MarketingPlaybookRequest req) {
+        MarketingPlaybook playbook = playbookRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Playbook not found"));
+
+        if (req.getTitle() != null) playbook.setTitle(req.getTitle());
+        if (req.getTag() != null) playbook.setTag(req.getTag().trim());
+        if (req.getContent() != null) playbook.setContent(req.getContent().trim());
+        if (req.getPdfFilename() != null) playbook.setPdfFilename(req.getPdfFilename());
+        if (req.getStrictGuidelines() != null) playbook.setStrictGuidelines(req.getStrictGuidelines());
+
+        return playbookRepository.save(playbook);
+    }
+
+    @Transactional
+    public void deletePlaybook(UUID id) {
+        playbookRepository.deleteById(id);
+    }
+
+    public String extractTextFromPdf(byte[] pdfBytes) throws Exception {
+        try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(pdfBytes)) {
+            org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
+            String text = stripper.getText(document);
+            return text != null ? text.trim() : "";
+        }
     }
 
     // ── AI First Message Generator ──
@@ -314,6 +369,23 @@ public class MarketingOutreachService {
             convoFormatted.append(msg.getSender()).append(": ").append(msg.getText()).append("\n");
         }
 
+        // Look up custom playbook/knowledge for this lead's tag
+        Optional<MarketingPlaybook> playbookOpt = playbookRepository.findTopByTagIgnoreCaseOrderByCreatedAtDesc(lead.getTag());
+        String playbookSection = "";
+        if (playbookOpt.isPresent()) {
+            MarketingPlaybook pb = playbookOpt.get();
+            playbookSection = String.format("""
+                    
+                    === MANDATORY PLAYBOOK & APPROVED TALKING POINTS (FLOW: %s) ===
+                    %s
+                    
+                    STRICT BOUNDARY INSTRUCTIONS:
+                    - You MUST focus ONLY on the topics, features, pricing, and talking points defined in the playbook above.
+                    - Do NOT invent outside features, pricing, or make unverified claims.
+                    - EXCEPTION: Only if the prospect explicitly asks an unrelated question, answer politely in 1 short sentence, then immediately steer back to the playbook offer.
+                    """, pb.getTag(), pb.getContent());
+        }
+
         String systemPrompt = String.format("""
                 You are a charismatic, consultative AI sales advisor representing @unireelverse.in chatting in Instagram DMs.
                 Your mission is to naturally converse with this prospective client, answer their questions, handle any hesitations/objections, and guide them to conversion.
@@ -322,12 +394,13 @@ public class MarketingOutreachService {
                 - Username: @%s
                 - Name: %s
                 - Context / Background: %s
-                - Niche / Tag: %s
+                - Niche / Flow Tag: %s
                 
                 Product & Offer to Sell:
                 %s
                 
                 Ultimate Goal:
+                %s
                 %s
                 
                 Conversation Transcript so far:
@@ -335,7 +408,7 @@ public class MarketingOutreachService {
                 
                 Sales Guidelines:
                 1. Acknowledge and validate their message with empathy.
-                2. Explain directly how our product/solution solves their specific pain point.
+                2. Explain directly how our product/solution solves their specific pain point using the approved playbook facts.
                 3. If they ask about price, features, or links, give them the exact information transparently with enthusiasm.
                 4. Keep the reply punchy, authentic, and under 350 characters. Use friendly emojis.
                 5. End with a natural call to action (e.g. asking if they'd like the link or a quick demo).
@@ -347,6 +420,7 @@ public class MarketingOutreachService {
                 lead.getTag(),
                 lead.getProductOffer(),
                 lead.getSalesGoal(),
+                playbookSection,
                 convoFormatted.toString()
         );
 

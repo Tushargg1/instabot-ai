@@ -2,9 +2,11 @@ package com.example.instagramreelai.controller;
 
 import com.example.instagramreelai.config.AppProperties;
 import com.example.instagramreelai.dto.MarketingLeadRequest;
+import com.example.instagramreelai.dto.MarketingPlaybookRequest;
 import com.example.instagramreelai.dto.MarketingStatsDto;
 import com.example.instagramreelai.entity.InstagramAccount;
 import com.example.instagramreelai.entity.MarketingLead;
+import com.example.instagramreelai.entity.MarketingPlaybook;
 import com.example.instagramreelai.repository.InstagramAccountRepository;
 import com.example.instagramreelai.service.EncryptionService;
 import com.example.instagramreelai.service.MarketingOutreachService;
@@ -14,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -117,5 +120,51 @@ public class MarketingController {
         String input = body.getOrDefault("message", "");
         String reply = outreachService.simulateSalesResponse(id, input);
         return ResponseEntity.ok(Map.of("reply", reply));
+    }
+
+    // ── Playbooks & Sales Scripts Endpoints ──
+
+    @GetMapping("/playbooks")
+    public ResponseEntity<List<MarketingPlaybook>> getPlaybooks() {
+        return ResponseEntity.ok(outreachService.getPlaybooks());
+    }
+
+    @GetMapping("/playbooks/{id}")
+    public ResponseEntity<MarketingPlaybook> getPlaybook(@PathVariable UUID id) {
+        return outreachService.getPlaybook(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/playbooks")
+    public ResponseEntity<MarketingPlaybook> createPlaybook(@RequestBody MarketingPlaybookRequest req) {
+        return ResponseEntity.ok(outreachService.createPlaybook(req));
+    }
+
+    @PutMapping("/playbooks/{id}")
+    public ResponseEntity<MarketingPlaybook> updatePlaybook(@PathVariable UUID id, @RequestBody MarketingPlaybookRequest req) {
+        return ResponseEntity.ok(outreachService.updatePlaybook(id, req));
+    }
+
+    @DeleteMapping("/playbooks/{id}")
+    public ResponseEntity<Void> deletePlaybook(@PathVariable UUID id) {
+        outreachService.deletePlaybook(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/playbooks/upload-pdf")
+    public ResponseEntity<Map<String, String>> uploadPdf(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "File is empty"));
+        }
+        try {
+            String extracted = outreachService.extractTextFromPdf(file.getBytes());
+            return ResponseEntity.ok(Map.of(
+                    "filename", file.getOriginalFilename() != null ? file.getOriginalFilename() : "document.pdf",
+                    "extractedText", extracted
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to parse PDF: " + e.getMessage()));
+        }
     }
 }
