@@ -34,6 +34,7 @@ public class DmAutoReplyService {
     private final EncryptionService encryptionService;
     private final com.example.instagramreelai.config.AppProperties appProperties;
     private final InstagramUserProfileService userProfileService;
+    private final ReelConversationService reelConversationService;
 
     // ------------------------------------------------------------------ CRUD
 
@@ -123,7 +124,39 @@ public class DmAutoReplyService {
             return;
         }
 
-        // Look up rules belonging to the account owner
+        // Resolve access token
+        String accessToken = appProperties.getInstagram().getAccessToken();
+        if (accessToken == null || accessToken.isBlank()) {
+            if (account.getAccessTokenEncrypted() != null && !account.getAccessTokenEncrypted().isBlank()) {
+                try {
+                    accessToken = encryptionService.decrypt(account.getAccessTokenEncrypted());
+                } catch (Exception e) {
+                    log.warn("Could not decrypt account token: {}", e.getMessage());
+                }
+            }
+        }
+        if (accessToken == null || accessToken.isBlank()) {
+            log.warn("DM auto-reply: no valid access token for account {}", accountId);
+            return;
+        }
+
+        String text = messageText != null ? messageText : "";
+
+        // ── 1. Conversational AI Q&A or Unlock check on recently shared Reel ──
+        try {
+            Optional<String> conversationReply = reelConversationService.answerFollowUp(senderId, text);
+            if (conversationReply.isPresent()) {
+                boolean sent = instagramClient.sendReply(accountId, senderId, conversationReply.get(), accessToken);
+                if (sent) {
+                    log.info("Conversational Reel Q&A sent to sender={}", senderId);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Conversational Q&A error for sender={}: {}", senderId, e.getMessage());
+        }
+
+        // ── 2. Standard custom user rules fallback ──
         AppUser owner = account.getUser();
         if (owner == null) {
             log.warn("DM auto-reply: account {} has no linked user", accountId);
@@ -133,7 +166,6 @@ public class DmAutoReplyService {
         List<DmReplyRule> rules = ruleRepository.findEnabledByUserIdOrdered(owner.getId());
         if (rules.isEmpty()) return;
 
-        String text = messageText != null ? messageText : "";
         DmReplyRule matched = firstMatch(rules, text);
         if (matched == null) {
             log.debug("DM auto-reply: no rule matched for sender={}", senderId);
@@ -156,22 +188,6 @@ public class DmAutoReplyService {
             } else {
                 reply = reply.replace("{name}", "there").replace("{username}", "");
             }
-        }
-
-        // Fast path: check in-memory configured token first (0ms)
-        String accessToken = appProperties.getInstagram().getAccessToken();
-        if (accessToken == null || accessToken.isBlank()) {
-            if (account.getAccessTokenEncrypted() != null && !account.getAccessTokenEncrypted().isBlank()) {
-                try {
-                    accessToken = encryptionService.decrypt(account.getAccessTokenEncrypted());
-                } catch (Exception e) {
-                    log.warn("Could not decrypt account token: {}", e.getMessage());
-                }
-            }
-        }
-        if (accessToken == null || accessToken.isBlank()) {
-            log.warn("DM auto-reply: no valid access token for account {}", accountId);
-            return;
         }
 
         boolean sent = instagramClient.sendReply(accountId, senderId, reply, accessToken);

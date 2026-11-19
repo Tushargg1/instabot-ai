@@ -6,9 +6,11 @@ import com.example.instagramreelai.config.AppProperties;
 import com.example.instagramreelai.dto.AiSummaryResult;
 import com.example.instagramreelai.entity.*;
 import com.example.instagramreelai.instagram.InstagramClient;
+import com.example.instagramreelai.instagram.InstagramUserProfile;
 import com.example.instagramreelai.media.MediaService;
 import com.example.instagramreelai.repository.*;
 import com.example.instagramreelai.service.EncryptionService;
+import com.example.instagramreelai.service.InstagramUserProfileService;
 import com.example.instagramreelai.service.KnowledgeService;
 import com.example.instagramreelai.service.ReelCacheService;
 import com.example.instagramreelai.service.ReelResultService;
@@ -48,6 +50,7 @@ public class JobWorker {
     private final WorkerRegistryService workerRegistryService;
     private final ObjectMapper objectMapper;
     private final KnowledgeService knowledgeService;
+    private final InstagramUserProfileService userProfileService;
 
     @Scheduled(fixedDelay = 5000)
     public void pollAndProcess() {
@@ -204,8 +207,27 @@ public class JobWorker {
                         reel.getId(), "PENDING");
         boolean deliveredToAll = true;
         for (ReelRequest request : pending) {
+            String senderId = request.getInstagramSenderId();
+            String messageToSend = message;
+
+            // Follower-only gating: Check if sender follows @unireelverse.in
+            if (senderId != null && !senderId.isBlank()) {
+                try {
+                    Optional<InstagramUserProfile> profileOpt = userProfileService.getProfile(senderId);
+                    if (profileOpt.isPresent()) {
+                        InstagramUserProfile profile = profileOpt.get();
+                        if (Boolean.FALSE.equals(profile.getIsUserFollowBusiness())) {
+                            messageToSend = formatTeaserReply(reel, profile);
+                            log.info("Sender {} is NOT following; sending teaser lead-magnet reply", senderId);
+                        }
+                    }
+                } catch (Exception ex) {
+                    log.warn("Follower check failed for sender={}: {}", senderId, ex.getMessage());
+                }
+            }
+
             boolean delivered = instagramClient.sendReply(
-                    accountId, request.getInstagramSenderId(), message, accessToken);
+                    accountId, senderId, messageToSend, accessToken);
             if (delivered) {
                 request.setStatus("COMPLETED");
                 request.setReplyStatus("REPLIED");
@@ -219,6 +241,31 @@ public class JobWorker {
             requestRepository.save(request);
         }
         return deliveredToAll;
+    }
+
+    private String formatTeaserReply(Reel reel, InstagramUserProfile profile) {
+        String title = "Reel Highlights";
+        String summaryText = "";
+        Optional<ReelSummary> summaryOpt = summaryRepository.findByReelId(reel.getId());
+        if (summaryOpt.isPresent()) {
+            ReelSummary s = summaryOpt.get();
+            if (s.getTitle() != null && !s.getTitle().isBlank()) title = s.getTitle();
+            if (s.getSummary() != null && !s.getSummary().isBlank()) summaryText = s.getSummary().trim();
+        }
+
+        String displayName = profile != null && profile.getName() != null && !profile.getName().isBlank()
+                ? profile.getName() : "there";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("🎬 ").append(title).append("\n\n");
+        sb.append("👋 Hey ").append(displayName).append("! Here is your quick preview:\n\n");
+        if (!summaryText.isBlank()) {
+            sb.append("📌 ").append(summaryText).append("\n\n");
+        }
+        sb.append("🔒 The full breakdown with key data points, exact tool names, links & steps is reserved for our followers!\n\n");
+        sb.append("👉 Follow @unireelverse.in and reply \"unlock\" right here to get instant access!");
+
+        return truncate(sb.toString().trim());
     }
 
     private String formatReply(ReelSummary summary) {
