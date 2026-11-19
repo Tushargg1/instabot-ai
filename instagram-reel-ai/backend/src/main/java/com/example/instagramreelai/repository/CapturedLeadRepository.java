@@ -26,7 +26,6 @@ public interface CapturedLeadRepository extends JpaRepository<CapturedLead, UUID
             LOWER(l.fullName) LIKE LOWER(CONCAT('%', :query, '%')) OR
             LOWER(l.sourceReelTitle) LIKE LOWER(CONCAT('%', :query, '%'))
         ))
-        ORDER BY l.createdAt DESC
     """)
     Page<CapturedLead> search(@Param("query") String query, Pageable pageable);
 }

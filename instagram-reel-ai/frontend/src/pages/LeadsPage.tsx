@@ -20,7 +20,8 @@ interface CapturedLead {
   fullName: string | null
   avatarUrl: string | null
   sourceReelTitle: string | null
-  capturedAt: string
+  createdAt: string
+  capturedAt?: string
   status: string
 }
 
@@ -63,7 +64,7 @@ export default function LeadsPage() {
       `"${l.instagramUsername || l.instagramSenderId}"`,
       `"${l.fullName || ''}"`,
       `"${(l.sourceReelTitle || '').replace(/"/g, '""')}"`,
-      `"${l.capturedAt}"`,
+      `"${l.createdAt || l.capturedAt || ''}"`,
       `"${l.status}"`,
     ])
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
@@ -238,7 +239,7 @@ export default function LeadsPage() {
                     <td className="px-5 py-3.5 whitespace-nowrap text-xs text-gray-500">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                        {formatDate(lead.capturedAt)}
+                        {formatDate(lead.createdAt || lead.capturedAt || new Date().toISOString())}
                       </div>
                     </td>
 
