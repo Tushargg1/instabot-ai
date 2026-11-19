@@ -35,4 +35,17 @@ public class MockInstagramClient implements InstagramClient {
         log.info("[MOCK] Verifying webhook with token={}", verifyToken);
         return true;
     }
+
+    @Override
+    public Optional<InstagramUserProfile> getUserProfile(String igsid, String accessToken) {
+        log.info("[MOCK] Getting user profile for igsid={}", igsid);
+        return Optional.of(InstagramUserProfile.builder()
+                .id(igsid)
+                .username("mock_user")
+                .name("Mock User")
+                .profilePic("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80")
+                .isUserFollowBusiness(true)
+                .isBusinessFollowUser(false)
+                .build());
+    }
 }

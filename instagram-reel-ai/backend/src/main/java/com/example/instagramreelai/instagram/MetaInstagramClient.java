@@ -101,6 +101,41 @@ public class MetaInstagramClient implements InstagramClient {
     }
 
     @Override
+    public Optional<InstagramUserProfile> getUserProfile(String igsid, String accessToken) {
+        if (igsid == null || igsid.isBlank() || accessToken == null || accessToken.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            String url = graphApiBase() + "/" + igsid + "?fields=name,username,profile_pic,is_user_follow_business,is_business_follow_user";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                JsonNode json = objectMapper.readTree(response.body());
+                InstagramUserProfile profile = InstagramUserProfile.builder()
+                        .id(json.path("id").asText(igsid))
+                        .username(json.path("username").asText(null))
+                        .name(json.path("name").asText(null))
+                        .profilePic(json.path("profile_pic").asText(null))
+                        .isUserFollowBusiness(json.has("is_user_follow_business") ? json.path("is_user_follow_business").asBoolean() : null)
+                        .isBusinessFollowUser(json.has("is_business_follow_user") ? json.path("is_business_follow_user").asBoolean() : null)
+                        .build();
+                return Optional.of(profile);
+            } else {
+                log.warn("Failed to fetch user profile for igsid={}, status={}, body={}", igsid, response.statusCode(), response.body());
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            log.error("Error fetching user profile for igsid={}", igsid, e);
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public boolean verifyWebhook(String verifyToken, String challenge) {
         return appProperties.getInstagram().getWebhookVerifyToken().equals(verifyToken);
     }

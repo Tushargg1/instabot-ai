@@ -33,6 +33,7 @@ public class DmAutoReplyService {
     private final InstagramClient instagramClient;
     private final EncryptionService encryptionService;
     private final com.example.instagramreelai.config.AppProperties appProperties;
+    private final InstagramUserProfileService userProfileService;
 
     // ------------------------------------------------------------------ CRUD
 
@@ -140,6 +141,20 @@ public class DmAutoReplyService {
         }
 
         String reply = matched.getReplyText().replace("{sender_id}", senderId);
+
+        var profileOpt = userProfileService.getProfile(senderId);
+        if (profileOpt.isPresent()) {
+            var profile = profileOpt.get();
+            String displayName = profile.getName() != null && !profile.getName().isBlank()
+                    ? profile.getName()
+                    : (profile.getUsername() != null ? profile.getUsername() : "there");
+            reply = reply.replace("{name}", displayName)
+                         .replace("{username}", profile.getUsername() != null ? "@" + profile.getUsername() : "");
+            log.info("DM auto-reply: sender={} username='{}' isFollowing={}",
+                    senderId, profile.getUsername(), profile.getIsUserFollowBusiness());
+        } else {
+            reply = reply.replace("{name}", "there").replace("{username}", "");
+        }
         String accessToken = null;
         if (account.getAccessTokenEncrypted() != null && !account.getAccessTokenEncrypted().isBlank()) {
             try {

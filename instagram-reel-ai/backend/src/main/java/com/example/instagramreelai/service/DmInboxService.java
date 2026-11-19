@@ -19,6 +19,7 @@ public class DmInboxService {
 
     private final WebhookEventRepository eventRepository;
     private final ObjectMapper objectMapper;
+    private final InstagramUserProfileService userProfileService;
 
     public Page<DmEventDto> listEvents(int page, int size, String senderId) {
         Pageable pageable = PageRequest.of(page, size);
@@ -58,11 +59,31 @@ public class DmInboxService {
             log.debug("Could not parse raw payload for event {}: {}", event.getId(), e.getMessage());
         }
 
+        String senderUsername = null;
+        String senderName = null;
+        String senderProfilePic = null;
+        Boolean isFollowing = null;
+
+        if (event.getSenderId() != null && !event.getSenderId().isBlank()) {
+            var profileOpt = userProfileService.getProfile(event.getSenderId());
+            if (profileOpt.isPresent()) {
+                var p = profileOpt.get();
+                senderUsername = p.getUsername();
+                senderName = p.getName();
+                senderProfilePic = p.getProfilePic();
+                isFollowing = p.getIsUserFollowBusiness();
+            }
+        }
+
         return DmEventDto.builder()
                 .id(event.getId())
                 .externalEventId(event.getExternalEventId())
                 .senderId(event.getSenderId())
                 .recipientId(event.getRecipientId())
+                .senderUsername(senderUsername)
+                .senderName(senderName)
+                .senderProfilePic(senderProfilePic)
+                .isUserFollowBusiness(isFollowing)
                 .eventType(event.getEventType())
                 .messageText(messageText)
                 .attachmentType(attachmentType)

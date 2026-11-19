@@ -23,4 +23,9 @@ public interface InstagramClient {
      * Verify webhook subscription challenge.
      */
     boolean verifyWebhook(String verifyToken, String challenge);
+
+    /**
+     * Retrieve user profile and follow status from an Instagram Scoped User ID (IGSID).
+     */
+    Optional<InstagramUserProfile> getUserProfile(String igsid, String accessToken);
 }
