@@ -265,10 +265,18 @@ class ApiClient {
 
   // DM Inbox
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getDmInbox(page = 0, size = 50, senderId?: string): Promise<any> {
+  getDmInbox(page = 0, size = 100, senderId?: string): Promise<any> {
     const params = new URLSearchParams({ page: String(page), size: String(size) })
     if (senderId) params.set('senderId', senderId)
     return this.request<Record<string, unknown>>(`/dm-inbox?${params}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sendDmMessage(recipientId: string, message: string): Promise<any> {
+    return this.request<Record<string, unknown>>('/dm-inbox/send', {
+      method: 'POST',
+      body: JSON.stringify({ recipientId, message }),
+    })
   }
 }
 

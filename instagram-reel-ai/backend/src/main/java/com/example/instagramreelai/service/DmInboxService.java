@@ -20,6 +20,10 @@ public class DmInboxService {
     private final WebhookEventRepository eventRepository;
     private final ObjectMapper objectMapper;
     private final InstagramUserProfileService userProfileService;
+    private final com.example.instagramreelai.config.AppProperties appProperties;
+    private final com.example.instagramreelai.instagram.InstagramClient instagramClient;
+    private final com.example.instagramreelai.repository.InstagramAccountRepository accountRepository;
+    private final EncryptionService encryptionService;
 
     public Page<DmEventDto> listEvents(int page, int size, String senderId) {
         Pageable pageable = PageRequest.of(page, size);
@@ -59,13 +63,18 @@ public class DmInboxService {
             log.debug("Could not parse raw payload for event {}: {}", event.getId(), e.getMessage());
         }
 
+        String accountId = appProperties.getInstagram().getAccountId();
+        boolean isOutgoing = accountId != null && accountId.equals(event.getSenderId());
+        String contactId = isOutgoing ? event.getRecipientId() : event.getSenderId();
+
         String senderUsername = null;
         String senderName = null;
         String senderProfilePic = null;
         Boolean isFollowing = null;
 
-        if (event.getSenderId() != null && !event.getSenderId().isBlank()) {
-            var profileOpt = userProfileService.getProfile(event.getSenderId());
+        String targetForProfile = (contactId != null && !contactId.isBlank()) ? contactId : event.getSenderId();
+        if (targetForProfile != null && !targetForProfile.isBlank() && !targetForProfile.equals(accountId)) {
+            var profileOpt = userProfileService.getProfile(targetForProfile);
             if (profileOpt.isPresent()) {
                 var p = profileOpt.get();
                 senderUsername = p.getUsername();
@@ -80,6 +89,8 @@ public class DmInboxService {
                 .externalEventId(event.getExternalEventId())
                 .senderId(event.getSenderId())
                 .recipientId(event.getRecipientId())
+                .contactId(contactId)
+                .outgoing(isOutgoing)
                 .senderUsername(senderUsername)
                 .senderName(senderName)
                 .senderProfilePic(senderProfilePic)
@@ -91,5 +102,49 @@ public class DmInboxService {
                 .processed(event.getProcessed())
                 .receivedAt(event.getReceivedAt())
                 .build();
+    }
+
+    public boolean sendManualReply(String recipientId, String messageText) {
+        String accountId = appProperties.getInstagram().getAccountId();
+        String accessToken = appProperties.getInstagram().getAccessToken();
+        if (accessToken == null || accessToken.isBlank()) {
+            var accOpt = accountRepository.findByInstagramAccountId(accountId);
+            if (accOpt.isPresent() && accOpt.get().getAccessTokenEncrypted() != null) {
+                try {
+                    accessToken = encryptionService.decrypt(accOpt.get().getAccessTokenEncrypted());
+                } catch (Exception e) {
+                    log.error("Failed to decrypt token", e);
+                }
+            }
+        }
+
+        if (accessToken == null || accessToken.isBlank()) {
+            log.error("No access token available to send manual reply");
+            return false;
+        }
+
+        boolean sent = instagramClient.sendReply(accountId, recipientId, messageText, accessToken);
+        if (sent) {
+            try {
+                var event = new InstagramWebhookEvent();
+                event.setExternalEventId("manual_" + java.util.UUID.randomUUID());
+                event.setSenderId(accountId);
+                event.setRecipientId(recipientId);
+                event.setEventType("text");
+                event.setRawPayload(objectMapper.writeValueAsString(java.util.Map.of(
+                        "entry", java.util.List.of(java.util.Map.of(
+                                "messaging", java.util.List.of(java.util.Map.of(
+                                        "message", java.util.Map.of("text", messageText)
+                                ))
+                        ))
+                )));
+                event.setReceivedAt(java.time.Instant.now());
+                event.setProcessed(true);
+                eventRepository.save(event);
+            } catch (Exception ex) {
+                log.warn("Failed to persist manual sent message: {}", ex.getMessage());
+            }
+        }
+        return sent;
     }
 }

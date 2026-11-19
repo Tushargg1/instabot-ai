@@ -25,4 +25,19 @@ public class DmInboxController {
             @RequestParam(required = false) String senderId) {
         return ResponseEntity.ok(dmInboxService.listEvents(page, Math.min(size, 100), senderId));
     }
+
+    @PostMapping("/send")
+    public ResponseEntity<?> sendManualMessage(@RequestBody java.util.Map<String, String> body) {
+        String recipientId = body.get("recipientId");
+        String message = body.get("message");
+        if (recipientId == null || message == null || message.isBlank()) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", "recipientId and message are required"));
+        }
+        boolean sent = dmInboxService.sendManualReply(recipientId, message);
+        if (sent) {
+            return ResponseEntity.ok(java.util.Map.of("status", "SENT"));
+        } else {
+            return ResponseEntity.status(500).body(java.util.Map.of("error", "Failed to send message via Instagram API"));
+        }
+    }
 }

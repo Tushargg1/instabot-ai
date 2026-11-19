@@ -13,6 +13,8 @@ public class DmEventDto {
     private String externalEventId;
     private String senderId;
     private String recipientId;
+    private String contactId;
+    private Boolean outgoing;
     private String senderUsername;
     private String senderName;
     private String senderProfilePic;

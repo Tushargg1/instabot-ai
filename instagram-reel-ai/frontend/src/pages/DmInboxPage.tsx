@@ -1,13 +1,27 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
-import { Inbox, RefreshCw, ChevronLeft, ChevronRight, Image, Video, Share2, Film, MessageSquare, Search, X, CheckCircle2, UserX, ExternalLink } from 'lucide-react'
+import {
+  Inbox,
+  RefreshCw,
+  Search,
+  CheckCircle2,
+  UserX,
+  ExternalLink,
+  Send,
+  MessageSquare,
+  Bot,
+  Paperclip,
+  CheckCheck
+} from 'lucide-react'
 
 interface DmEvent {
   id: string
   externalEventId: string
   senderId: string
   recipientId: string
+  contactId?: string | null
+  outgoing?: boolean | null
   senderUsername?: string | null
   senderName?: string | null
   senderProfilePic?: string | null
@@ -20,27 +34,17 @@ interface DmEvent {
   receivedAt: string
 }
 
-const TYPE_ICONS: Record<string, React.ReactNode> = {
-  text: <MessageSquare size={14} className="text-blue-500" />,
-  image: <Image size={14} className="text-purple-500" />,
-  video: <Video size={14} className="text-orange-500" />,
-  audio: <Video size={14} className="text-pink-500" />,
-  share: <Share2 size={14} className="text-green-500" />,
-  ig_reel: <Film size={14} className="text-red-500" />,
-  reel: <Film size={14} className="text-red-500" />,
+interface ConversationThread {
+  contactId: string
+  username: string | null
+  name: string | null
+  profilePic: string | null
+  isFollowing: boolean | null
+  lastMessage: DmEvent
+  messages: DmEvent[]
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  text: 'Text',
-  image: 'Image',
-  video: 'Video',
-  audio: 'Audio',
-  share: 'Share',
-  ig_reel: 'Reel',
-  reel: 'Reel',
-}
-
-function formatTime(iso: string) {
+function formatRelativeTime(iso: string) {
   const d = new Date(iso)
   const now = new Date()
   const diffMs = now.getTime() - d.getTime()
@@ -51,35 +55,53 @@ function formatTime(iso: string) {
   if (diffHours < 24) return `${diffHours}h ago`
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays < 7) return `${diffDays}d ago`
-  return d.toLocaleDateString()
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function SenderAvatar({ dm, size = 'md' }: { dm: DmEvent; size?: 'sm' | 'md' | 'lg' }) {
+function formatMessageTime(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function Avatar({
+  src,
+  label,
+  size = 'md'
+}: {
+  src?: string | null
+  label: string
+  size?: 'sm' | 'md' | 'lg'
+}) {
   const [imgFailed, setImgFailed] = useState(false)
   const sizeClasses = {
-    sm: 'w-7 h-7 text-[10px]',
-    md: 'w-10 h-10 text-xs',
-    lg: 'w-16 h-16 text-sm',
+    sm: 'w-8 h-8 text-xs',
+    md: 'w-11 h-11 text-sm',
+    lg: 'w-14 h-14 text-base',
   }[size]
 
-  if (dm.senderProfilePic && !imgFailed) {
+  if (src && !imgFailed) {
     return (
       <img
-        src={dm.senderProfilePic}
-        alt={dm.senderUsername || dm.senderId}
+        src={src}
+        alt={label}
         onError={() => setImgFailed(true)}
-        className={`${sizeClasses} rounded-full object-cover border border-gray-200 shrink-0 shadow-xs`}
+        className={`${sizeClasses} rounded-full object-cover border border-gray-200 shrink-0 shadow-2xs`}
       />
     )
   }
 
-  const label = dm.senderUsername || dm.senderName || dm.senderId
-  const colors = ['bg-pink-500', 'bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-red-500', 'bg-indigo-500']
-  const idx = label.charCodeAt(label.length - 1) % colors.length
-  const initials = (dm.senderName || dm.senderUsername || dm.senderId).slice(0, 2).toUpperCase()
+  const colors = [
+    'bg-gradient-to-tr from-pink-500 to-rose-400',
+    'bg-gradient-to-tr from-purple-600 to-indigo-400',
+    'bg-gradient-to-tr from-blue-600 to-cyan-400',
+    'bg-gradient-to-tr from-emerald-600 to-teal-400',
+    'bg-gradient-to-tr from-amber-500 to-orange-400',
+  ]
+  const idx = Math.abs(label.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length
+  const initials = label.replace('@', '').slice(0, 2).toUpperCase()
 
   return (
-    <div className={`${sizeClasses} rounded-full ${colors[idx]} flex items-center justify-center text-white font-bold shrink-0 shadow-xs`}>
+    <div className={`${sizeClasses} rounded-full ${colors[idx]} flex items-center justify-center text-white font-bold shrink-0 shadow-2xs`}>
       {initials}
     </div>
   )
@@ -104,269 +126,377 @@ function FollowBadge({ isFollowing }: { isFollowing?: boolean | null }) {
 }
 
 export default function DmInboxPage() {
-  const [page, setPage] = useState(0)
-  const [senderFilter, setSenderFilter] = useState('')
-  const [appliedFilter, setAppliedFilter] = useState('')
-  const [selectedDm, setSelectedDm] = useState<DmEvent | null>(null)
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Fetch all DMs (up to 100 recent events)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, isLoading, isFetching, refetch } = useQuery<any>({
-    queryKey: ['dm-inbox', page, appliedFilter],
-    queryFn: () => apiClient.getDmInbox(page, 50, appliedFilter || undefined),
-    refetchInterval: 12000,
+    queryKey: ['dm-inbox'],
+    queryFn: () => apiClient.getDmInbox(0, 100),
+    refetchInterval: 8000, // poll every 8 seconds for new messages
   })
 
-  const events: DmEvent[] = data?.content ?? []
-  const totalPages: number = data?.totalPages ?? 0
-  const totalElements: number = data?.totalElements ?? 0
+  const rawEvents: DmEvent[] = data?.content ?? []
 
-  function applyFilter() {
-    setAppliedFilter(senderFilter.trim())
-    setPage(0)
-  }
+  // Group events by contact into conversations
+  const conversations: ConversationThread[] = useMemo(() => {
+    const map = new Map<string, ConversationThread>()
 
-  function clearFilter() {
-    setSenderFilter('')
-    setAppliedFilter('')
-    setPage(0)
+    for (const dm of rawEvents) {
+      // Determine contact ID: if contactId provided use it; otherwise deduce
+      const contact = dm.contactId || (dm.outgoing ? dm.recipientId : dm.senderId)
+      if (!contact) continue
+
+      let thread = map.get(contact)
+      if (!thread) {
+        thread = {
+          contactId: contact,
+          username: dm.senderUsername || null,
+          name: dm.senderName || null,
+          profilePic: dm.senderProfilePic || null,
+          isFollowing: dm.isUserFollowBusiness ?? null,
+          lastMessage: dm,
+          messages: [],
+        }
+        map.set(contact, thread)
+      }
+
+      // Update contact metadata if available
+      if (dm.senderUsername && !thread.username) thread.username = dm.senderUsername
+      if (dm.senderName && !thread.name) thread.name = dm.senderName
+      if (dm.senderProfilePic && !thread.profilePic) thread.profilePic = dm.senderProfilePic
+      if (dm.isUserFollowBusiness !== null && dm.isUserFollowBusiness !== undefined) {
+        thread.isFollowing = dm.isUserFollowBusiness
+      }
+
+      thread.messages.push(dm)
+    }
+
+    // Sort each thread's messages chronologically (oldest to newest)
+    for (const thread of map.values()) {
+      thread.messages.sort(
+        (a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime()
+      )
+      // latest message is the last one in chronological array
+      thread.lastMessage = thread.messages[thread.messages.length - 1]
+    }
+
+    // Sort conversations by latest message timestamp (newest conversation on top)
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.lastMessage.receivedAt).getTime() - new Date(a.lastMessage.receivedAt).getTime()
+    )
+  }, [rawEvents])
+
+  // Filter conversations by search input
+  const filteredConversations = useMemo(() => {
+    if (!search.trim()) return conversations
+    const q = search.toLowerCase()
+    return conversations.filter(c =>
+      (c.username && c.username.toLowerCase().includes(q)) ||
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      c.contactId.toLowerCase().includes(q) ||
+      c.messages.some(m => m.messageText && m.messageText.toLowerCase().includes(q))
+    )
+  }, [conversations, search])
+
+  // Default selection to first conversation if none selected
+  useEffect(() => {
+    if (!selectedContactId && conversations.length > 0) {
+      setSelectedContactId(conversations[0].contactId)
+    }
+  }, [conversations, selectedContactId])
+
+  // Current active conversation
+  const activeConversation = useMemo(() => {
+    return conversations.find(c => c.contactId === selectedContactId) || null
+  }, [conversations, selectedContactId])
+
+  // Auto-scroll chat to bottom when conversation or message count changes
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeConversation?.messages.length, selectedContactId])
+
+  // Send manual reply mutation
+  const sendMutation = useMutation({
+    mutationFn: ({ recipientId, text }: { recipientId: string; text: string }) =>
+      apiClient.sendDmMessage(recipientId, text),
+    onSuccess: () => {
+      setReplyText('')
+      queryClient.invalidateQueries({ queryKey: ['dm-inbox'] })
+    },
+  })
+
+  function handleSend() {
+    if (!replyText.trim() || !activeConversation || sendMutation.isPending) return
+    sendMutation.mutate({
+      recipientId: activeConversation.contactId,
+      text: replyText.trim(),
+    })
   }
 
   return (
-    <div className="max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="h-[calc(100vh-6rem)] flex flex-col">
+      {/* Top Header */}
+      <div className="flex items-center justify-between pb-4 border-b border-gray-200 shrink-0">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Inbox size={24} className="text-blue-600" />
             DM Inbox
           </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Real-time feed of direct messages sent to your connected Instagram account.
+          <p className="text-xs text-gray-500 mt-0.5">
+            {conversations.length} active conversation{conversations.length === 1 ? '' : 's'} · Real-time Instagram DMs
           </p>
         </div>
+
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700 disabled:opacity-50 transition-colors shadow-2xs"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-700 disabled:opacity-50 transition-colors shadow-2xs"
         >
-          <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+          <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
           Refresh
         </button>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter by sender ID or username…"
-            value={senderFilter}
-            onChange={e => setSenderFilter(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && applyFilter()}
-            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <button
-          onClick={applyFilter}
-          className="px-3.5 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium"
-        >
-          Filter
-        </button>
-        {appliedFilter && (
-          <button onClick={clearFilter} className="flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
-            <X size={14} /> Clear
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-5">
-        {/* DM List */}
-        <div className="flex-1 min-w-0">
-          {isLoading ? (
-            <div className="text-center py-16 text-gray-400">Loading DMs…</div>
-          ) : events.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 bg-white rounded-xl border border-gray-200">
-              <Inbox size={48} className="mx-auto mb-3 opacity-30" />
-              <p className="font-medium text-gray-700">No DMs yet</p>
-              <p className="text-sm mt-1">DMs sent to your Instagram account will appear here automatically.</p>
+      {/* Main 2-Panel Messenger Interface */}
+      <div className="flex-1 min-h-0 flex mt-4 bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+        {/* LEFT COLUMN: Conversation Rows (1 per user) */}
+        <div className="w-80 md:w-96 flex flex-col border-r border-gray-200 bg-gray-50/50 shrink-0">
+          {/* Search box */}
+          <div className="p-3 border-b border-gray-200 bg-white">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search conversations…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-gray-100 rounded-lg text-xs text-gray-800 placeholder-gray-400 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          ) : (
-            <div className="space-y-2">
-              {events.map(dm => {
-                const isSelected = selectedDm?.id === dm.id
+          </div>
+
+          {/* Conversations List */}
+          <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+            {isLoading ? (
+              <div className="p-8 text-center text-xs text-gray-400">Loading conversations…</div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-xs font-medium text-gray-600">No conversations found</p>
+                <p className="text-[11px] text-gray-400 mt-1">DMs sent to your Instagram will show here as 1 row per user.</p>
+              </div>
+            ) : (
+              filteredConversations.map(conv => {
+                const isSelected = conv.contactId === selectedContactId
+                const displayName = conv.name || (conv.username ? `@${conv.username}` : conv.contactId)
+                const isOutgoingLast = conv.lastMessage.outgoing
+
                 return (
                   <button
-                    key={dm.id}
-                    onClick={() => setSelectedDm(dm)}
-                    className={`w-full text-left bg-white rounded-xl border px-4 py-3.5 flex items-start gap-3.5 transition-all hover:shadow-sm ${
+                    key={conv.contactId}
+                    onClick={() => setSelectedContactId(conv.contactId)}
+                    className={`w-full text-left p-3.5 flex items-start gap-3 transition-colors ${
                       isSelected
-                        ? 'border-blue-400 ring-1 ring-blue-200'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'bg-blue-50/80 border-r-3 border-blue-600'
+                        : 'hover:bg-gray-100/70 bg-white'
                     }`}
                   >
-                    <SenderAvatar dm={dm} size="md" />
+                    <Avatar
+                      src={conv.profilePic}
+                      label={conv.username || conv.contactId}
+                      size="md"
+                    />
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {dm.senderUsername ? (
-                            <span className="font-semibold text-sm text-gray-900 truncate">
-                              @{dm.senderUsername}
-                            </span>
-                          ) : (
-                            <span className="font-mono text-xs text-gray-600 font-medium truncate">
-                              {dm.senderId}
-                            </span>
-                          )}
-
-                          {dm.senderName && (
-                            <span className="text-xs text-gray-500 truncate hidden sm:inline">
-                              ({dm.senderName})
-                            </span>
-                          )}
-
-                          <FollowBadge isFollowing={dm.isUserFollowBusiness} />
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-xs font-semibold truncate ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                            {conv.username ? `@${conv.username}` : displayName}
+                          </span>
                         </div>
-
-                        <span className="text-xs text-gray-400 shrink-0">
-                          {formatTime(dm.receivedAt)}
+                        <span className="text-[10px] text-gray-400 shrink-0">
+                          {formatRelativeTime(conv.lastMessage.receivedAt)}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-1.5 mt-1">
-                        {TYPE_ICONS[dm.eventType] ?? <MessageSquare size={14} className="text-gray-400" />}
-                        <span className="text-xs text-gray-500 font-medium">
-                          {TYPE_LABEL[dm.eventType] ?? dm.eventType}
-                        </span>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {conv.name && (
+                          <span className="text-[11px] text-gray-500 truncate">
+                            {conv.name}
+                          </span>
+                        )}
+                        <FollowBadge isFollowing={conv.isFollowing} />
                       </div>
 
-                      {dm.messageText && (
-                        <p className="text-sm text-gray-800 mt-1 line-clamp-2 break-words">
-                          {dm.messageText}
-                        </p>
-                      )}
-
-                      {dm.attachmentType && (
-                        <span className="inline-block mt-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
-                          📎 {dm.attachmentType}
-                        </span>
-                      )}
+                      <p className="text-xs text-gray-500 truncate">
+                        {isOutgoingLast ? (
+                          <span className="text-blue-600 font-medium">You: </span>
+                        ) : null}
+                        {conv.lastMessage.messageText || `[${conv.lastMessage.eventType}]`}
+                      </p>
                     </div>
                   </button>
                 )
-              })}
-            </div>
-          )}
+              })
+            )}
+          </div>
+        </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-5">
-              <button
-                disabled={page === 0}
-                onClick={() => setPage(p => p - 1)}
-                className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-40"
-              >
-                <ChevronLeft size={14} /> Newer
-              </button>
-              <span className="text-xs text-gray-500">
-                Page {page + 1} of {totalPages} ({totalElements} total)
-              </span>
-              <button
-                disabled={page >= totalPages - 1}
-                onClick={() => setPage(p => p + 1)}
-                className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm disabled:opacity-40"
-              >
-                Older <ChevronRight size={14} />
-              </button>
+        {/* RIGHT COLUMN: Full Chat Conversation */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white">
+          {activeConversation ? (
+            <>
+              {/* Chat Header */}
+              <div className="px-5 py-3.5 border-b border-gray-200 flex items-center justify-between bg-white shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Avatar
+                    src={activeConversation.profilePic}
+                    label={activeConversation.username || activeConversation.contactId}
+                    size="md"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-sm text-gray-900 truncate">
+                        {activeConversation.name || (activeConversation.username ? `@${activeConversation.username}` : activeConversation.contactId)}
+                      </h3>
+                      <FollowBadge isFollowing={activeConversation.isFollowing} />
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                      {activeConversation.username && (
+                        <a
+                          href={`https://instagram.com/${activeConversation.username}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline flex items-center gap-1 text-[11px]"
+                        >
+                          @{activeConversation.username}
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                      <span className="font-mono text-[10px] text-gray-400">
+                        IGSID: {activeConversation.contactId}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right text-xs text-gray-400 shrink-0">
+                  {activeConversation.messages.length} message{activeConversation.messages.length === 1 ? '' : 's'}
+                </div>
+              </div>
+
+              {/* Chat Messages Body */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-gradient-to-b from-gray-50/40 to-white">
+                {activeConversation.messages.map(msg => {
+                  const isOutgoing = msg.outgoing
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex gap-2.5 max-w-[80%] ${
+                        isOutgoing ? 'ml-auto flex-row-reverse' : 'mr-auto'
+                      }`}
+                    >
+                      {/* Avatar next to bubble */}
+                      {isOutgoing ? (
+                        <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white shrink-0 self-end shadow-2xs">
+                          <Bot size={14} />
+                        </div>
+                      ) : (
+                        <Avatar
+                          src={activeConversation.profilePic}
+                          label={activeConversation.username || activeConversation.contactId}
+                          size="sm"
+                        />
+                      )}
+
+                      <div>
+                        {/* Bubble */}
+                        <div
+                          className={`rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs whitespace-pre-wrap break-words leading-relaxed ${
+                            isOutgoing
+                              ? 'bg-blue-600 text-white rounded-br-xs'
+                              : 'bg-white border border-gray-200 text-gray-900 rounded-bl-xs'
+                          }`}
+                        >
+                          {msg.messageText || <span className="italic opacity-60">Attachment: {msg.eventType}</span>}
+
+                          {msg.attachmentUrl && (
+                            <div className="mt-2 pt-2 border-t border-white/20">
+                              <a
+                                href={msg.attachmentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`inline-flex items-center gap-1 text-xs underline font-medium ${
+                                  isOutgoing ? 'text-white' : 'text-blue-600'
+                                }`}
+                              >
+                                <Paperclip size={12} /> View Media
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Timestamp & status */}
+                        <div
+                          className={`flex items-center gap-1 mt-1 text-[10px] text-gray-400 ${
+                            isOutgoing ? 'justify-end' : 'justify-start'
+                          }`}
+                        >
+                          <span>{formatMessageTime(msg.receivedAt)}</span>
+                          {isOutgoing && <CheckCheck size={12} className="text-blue-500" />}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Chat Input Bar */}
+              <div className="p-3 border-t border-gray-200 bg-white shrink-0">
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    handleSend()
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    placeholder={`Reply to ${activeConversation.username ? '@' + activeConversation.username : 'user'}…`}
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    disabled={sendMutation.isPending}
+                    className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!replyText.trim() || sendMutation.isPending}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs sm:text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs"
+                  >
+                    <Send size={14} className={sendMutation.isPending ? 'animate-pulse' : ''} />
+                    Send
+                  </button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400">
+              <MessageSquare size={48} className="opacity-20 mb-3" />
+              <p className="text-sm font-medium text-gray-600">Select a conversation</p>
+              <p className="text-xs text-gray-400 mt-1 max-w-xs">
+                Choose a user from the list on the left to see their full chronological chat history and reply directly.
+              </p>
             </div>
           )}
         </div>
-
-        {/* Detail panel */}
-        {selectedDm && (
-          <div className="w-84 shrink-0 bg-white rounded-xl border border-gray-200 p-5 self-start sticky top-4 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900 text-sm">Message Detail</h3>
-              <button onClick={() => setSelectedDm(null)} className="text-gray-400 hover:text-gray-600">
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* User Profile Header */}
-            <div className="flex flex-col items-center text-center pb-4 mb-4 border-b border-gray-100">
-              <SenderAvatar dm={selectedDm} size="lg" />
-              <h4 className="font-semibold text-gray-900 text-base mt-2">
-                {selectedDm.senderName || (selectedDm.senderUsername ? `@${selectedDm.senderUsername}` : selectedDm.senderId)}
-              </h4>
-              {selectedDm.senderUsername && (
-                <a
-                  href={`https://instagram.com/${selectedDm.senderUsername}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5"
-                >
-                  @{selectedDm.senderUsername}
-                  <ExternalLink size={11} />
-                </a>
-              )}
-              <div className="mt-2.5">
-                <FollowBadge isFollowing={selectedDm.isUserFollowBusiness} />
-              </div>
-            </div>
-
-            <div className="space-y-3.5 text-sm">
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Sender ID (IGSID)</p>
-                <p className="font-mono text-xs bg-gray-50 rounded px-2 py-1 break-all text-gray-700">{selectedDm.senderId}</p>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Type</p>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                  {TYPE_ICONS[selectedDm.eventType]}
-                  {TYPE_LABEL[selectedDm.eventType] ?? selectedDm.eventType}
-                </span>
-              </div>
-
-              {selectedDm.messageText && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Message Text</p>
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-sm text-gray-800 whitespace-pre-wrap">
-                    {selectedDm.messageText}
-                  </div>
-                </div>
-              )}
-
-              {selectedDm.attachmentType && (
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Attachment</p>
-                  <p className="text-xs text-gray-700 capitalize">{selectedDm.attachmentType}</p>
-                  {selectedDm.attachmentUrl && (
-                    <a
-                      href={selectedDm.attachmentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline break-all block mt-1"
-                    >
-                      View media ↗
-                    </a>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Received at</p>
-                <p className="text-xs text-gray-700">{new Date(selectedDm.receivedAt).toLocaleString()}</p>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-500 mb-0.5">Message ID</p>
-                <p className="font-mono text-[10px] text-gray-500 break-all">{selectedDm.externalEventId}</p>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
