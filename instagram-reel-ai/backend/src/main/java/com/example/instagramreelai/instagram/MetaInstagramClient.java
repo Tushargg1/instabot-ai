@@ -34,7 +34,10 @@ public class MetaInstagramClient implements InstagramClient {
     public MetaInstagramClient(AppProperties appProperties, ObjectMapper objectMapper) {
         this.appProperties = appProperties;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder().build();
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(java.time.Duration.ofSeconds(4))
+                .build();
     }
 
     private String graphApiBase() {

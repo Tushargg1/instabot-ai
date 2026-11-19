@@ -65,9 +65,25 @@ public class WebhookService {
             log.info("Webhook from unregistered account {}; using fallback account {}", accountId, account.getUsername());
         }
 
-        // Always persist the raw event so we can inspect all incoming DMs (including creator replies)
         String senderId = messageNode.path("sender").path("id").asText();
         String recipientId = messageNode.path("recipient").path("id").asText();
+        String dmText = messageNode.path("message").path("text").asText(null);
+
+        // ── Fast-path DM auto-reply: FIRE IMMEDIATELY in parallel with DB persistence ──
+        final InstagramAccount finalAccount = account;
+        Thread t = new Thread(() -> {
+            try {
+                dmAutoReplyService.handleIncomingDm(senderId, dmText, finalAccount.getInstagramAccountId());
+            } catch (Exception ex) {
+                log.warn("DM auto-reply error for mid={}: {}", messageId, ex.getMessage());
+            }
+        });
+        t.setName("dm-autoreply-" + messageId);
+        t.setDaemon(true);
+        t.start();
+        // ──────────────────────────────────────────────────────────────────────────────
+
+        // Always persist the raw event so we can inspect all incoming DMs (including creator replies)
         try {
             var event = new com.example.instagramreelai.entity.InstagramWebhookEvent();
             event.setExternalEventId(messageId);
@@ -88,22 +104,6 @@ public class WebhookService {
         } catch (Exception e) {
             log.warn("Failed to persist webhook event {}: {}", messageId, e.getMessage());
         }
-
-        // ── DM auto-reply ─────────────────────────────────────────────────────
-        // Fire-and-forget on a daemon thread so we never delay the webhook 200 OK
-        String dmText = messageNode.path("message").path("text").asText(null);
-        final InstagramAccount finalAccount = account;
-        Thread t = new Thread(() -> {
-            try {
-                dmAutoReplyService.handleIncomingDm(senderId, dmText, finalAccount.getInstagramAccountId());
-            } catch (Exception ex) {
-                log.warn("DM auto-reply error for mid={}: {}", messageId, ex.getMessage());
-            }
-        });
-        t.setName("dm-autoreply-" + messageId);
-        t.setDaemon(true);
-        t.start();
-        // ──────────────────────────────────────────────────────────────────────
 
         // Now process reel attachments for the AI pipeline
         JsonNode attachments = messageNode.path("message").path("attachments");

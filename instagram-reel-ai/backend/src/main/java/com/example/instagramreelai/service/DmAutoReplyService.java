@@ -140,31 +140,34 @@ public class DmAutoReplyService {
             return;
         }
 
-        String reply = matched.getReplyText().replace("{sender_id}", senderId);
+        String rawReply = matched.getReplyText();
+        String reply = rawReply.replace("{sender_id}", senderId);
 
-        var profileOpt = userProfileService.getProfile(senderId);
-        if (profileOpt.isPresent()) {
-            var profile = profileOpt.get();
-            String displayName = profile.getName() != null && !profile.getName().isBlank()
-                    ? profile.getName()
-                    : (profile.getUsername() != null ? profile.getUsername() : "there");
-            reply = reply.replace("{name}", displayName)
-                         .replace("{username}", profile.getUsername() != null ? "@" + profile.getUsername() : "");
-            log.info("DM auto-reply: sender={} username='{}' isFollowing={}",
-                    senderId, profile.getUsername(), profile.getIsUserFollowBusiness());
-        } else {
-            reply = reply.replace("{name}", "there").replace("{username}", "");
-        }
-        String accessToken = null;
-        if (account.getAccessTokenEncrypted() != null && !account.getAccessTokenEncrypted().isBlank()) {
-            try {
-                accessToken = encryptionService.decrypt(account.getAccessTokenEncrypted());
-            } catch (Exception e) {
-                log.warn("Could not decrypt account token: {}", e.getMessage());
+        // Fast path: Only query Meta profile API if template actually uses {name} or {username}
+        if (rawReply.contains("{name}") || rawReply.contains("{username}")) {
+            var profileOpt = userProfileService.getProfile(senderId);
+            if (profileOpt.isPresent()) {
+                var profile = profileOpt.get();
+                String displayName = profile.getName() != null && !profile.getName().isBlank()
+                        ? profile.getName()
+                        : (profile.getUsername() != null ? profile.getUsername() : "there");
+                reply = reply.replace("{name}", displayName)
+                             .replace("{username}", profile.getUsername() != null ? "@" + profile.getUsername() : "");
+            } else {
+                reply = reply.replace("{name}", "there").replace("{username}", "");
             }
         }
+
+        // Fast path: check in-memory configured token first (0ms)
+        String accessToken = appProperties.getInstagram().getAccessToken();
         if (accessToken == null || accessToken.isBlank()) {
-            accessToken = appProperties.getInstagram().getAccessToken();
+            if (account.getAccessTokenEncrypted() != null && !account.getAccessTokenEncrypted().isBlank()) {
+                try {
+                    accessToken = encryptionService.decrypt(account.getAccessTokenEncrypted());
+                } catch (Exception e) {
+                    log.warn("Could not decrypt account token: {}", e.getMessage());
+                }
+            }
         }
         if (accessToken == null || accessToken.isBlank()) {
             log.warn("DM auto-reply: no valid access token for account {}", accountId);
