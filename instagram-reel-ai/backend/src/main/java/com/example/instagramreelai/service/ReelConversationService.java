@@ -74,6 +74,11 @@ public class ReelConversationService {
             boolean isFollowing = profileOpt.map(p -> Boolean.TRUE.equals(p.getIsUserFollowBusiness())).orElse(false);
 
             if (isFollowing) {
+                if (Boolean.FALSE.equals(req.getWasFollowingInitially()) && !Boolean.TRUE.equals(req.getConvertedToFollower())) {
+                    req.setConvertedToFollower(true);
+                    requestRepository.save(req);
+                    log.info("Non-follower senderId={} converted to follower via unlock!", senderId);
+                }
                 return Optional.of("🎉 Thank you for following @unireelverse.in! Here is your full unlocked breakdown:\n\n"
                         + formatFullBreakdown(summary));
             } else {

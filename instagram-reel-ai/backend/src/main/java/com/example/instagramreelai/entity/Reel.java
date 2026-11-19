@@ -68,6 +68,10 @@ public class Reel {
     @Builder.Default
     private Instant savedAt = Instant.now();
 
+    @Column(name = "platform")
+    @Builder.Default
+    private String platform = "INSTAGRAM";
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

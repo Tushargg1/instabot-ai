@@ -35,6 +35,7 @@ public class DmAutoReplyService {
     private final com.example.instagramreelai.config.AppProperties appProperties;
     private final InstagramUserProfileService userProfileService;
     private final ReelConversationService reelConversationService;
+    private final LeadCaptureService leadCaptureService;
 
     // ------------------------------------------------------------------ CRUD
 
@@ -141,6 +142,20 @@ public class DmAutoReplyService {
         }
 
         String text = messageText != null ? messageText : "";
+
+        // ── 0. Check for Email Lead Capture ──
+        try {
+            Optional<String> leadReply = leadCaptureService.processPotentialEmailLead(senderId, text);
+            if (leadReply.isPresent()) {
+                boolean sent = instagramClient.sendReply(accountId, senderId, leadReply.get(), accessToken);
+                if (sent) {
+                    log.info("Lead capture confirmation sent to sender={}", senderId);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Lead capture error for sender={}: {}", senderId, e.getMessage());
+        }
 
         // ── 1. Conversational AI Q&A or Unlock check on recently shared Reel ──
         try {

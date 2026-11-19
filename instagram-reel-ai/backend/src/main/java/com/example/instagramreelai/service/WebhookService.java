@@ -93,13 +93,27 @@ public class WebhookService {
             }
         }
 
-        // Check if message text contains an Instagram link
-        if (!hasReelAttachment && dmText != null && (dmText.contains("instagram.com/reel/") || dmText.contains("instagram.com/reels/") || dmText.contains("instagram.com/p/"))) {
-            hasReelAttachment = true;
-            reelMediaUrl = dmText.trim();
+        String detectedPlatform = "INSTAGRAM";
+        // Check if message text contains a video link (Instagram, YouTube Shorts, or TikTok)
+        if (!hasReelAttachment && dmText != null) {
+            String lower = dmText.toLowerCase().trim();
+            if (lower.contains("youtube.com/shorts/") || lower.contains("youtu.be/")) {
+                hasReelAttachment = true;
+                reelMediaUrl = dmText.trim();
+                detectedPlatform = "YOUTUBE";
+            } else if (lower.contains("tiktok.com/") || lower.contains("vm.tiktok.com/")) {
+                hasReelAttachment = true;
+                reelMediaUrl = dmText.trim();
+                detectedPlatform = "TIKTOK";
+            } else if (lower.contains("instagram.com/reel/") || lower.contains("instagram.com/reels/") || lower.contains("instagram.com/p/")) {
+                hasReelAttachment = true;
+                reelMediaUrl = dmText.trim();
+                detectedPlatform = "INSTAGRAM";
+            }
         }
 
         final boolean isReel = hasReelAttachment;
+        final String videoPlatform = detectedPlatform;
         final InstagramAccount finalAccount = account;
         final String finalMediaUrl = reelMediaUrl;
         final String finalMediaId = reelMediaId;
@@ -108,11 +122,13 @@ public class WebhookService {
         Thread t = new Thread(() -> {
             try {
                 if (isReel) {
-                    // Send instant acknowledgment for shared Reels
+                    // Send instant acknowledgment for shared Reels / Shorts / TikToks
                     String token = appProperties.getInstagram().getAccessToken();
                     if (token != null && !token.isBlank()) {
+                        String platformName = "YOUTUBE".equals(videoPlatform) ? "YouTube Short" :
+                                ("TIKTOK".equals(videoPlatform) ? "TikTok" : "Reel");
                         instagramClient.sendReply(finalAccount.getInstagramAccountId(), senderId,
-                                "⏳ Got your Reel! Extracting the main points and key data for you, one sec...", token);
+                                "⏳ Got your " + platformName + "! Extracting the main points and key data for you, one sec...", token);
                     }
                 } else {
                     dmAutoReplyService.handleIncomingDm(senderId, dmText, finalAccount.getInstagramAccountId());
@@ -161,6 +177,11 @@ public class WebhookService {
             reel = canonicalReelStore.resolveOrCreate(canonical, finalMediaId, account);
         } catch (DataIntegrityViolationException race) {
             reel = reelRepository.findByCanonicalKey(canonical.key()).orElseThrow(() -> race);
+        }
+
+        if (videoPlatform != null && !videoPlatform.equalsIgnoreCase(reel.getPlatform())) {
+            reel.setPlatform(videoPlatform);
+            reelRepository.save(reel);
         }
 
         try {

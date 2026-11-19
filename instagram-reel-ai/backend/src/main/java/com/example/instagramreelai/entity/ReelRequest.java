@@ -50,6 +50,14 @@ public class ReelRequest {
     @Builder.Default
     private String replyStatus = "PENDING";
 
+    @Column(name = "was_following_initially")
+    @Builder.Default
+    private Boolean wasFollowingInitially = true;
+
+    @Column(name = "converted_to_follower")
+    @Builder.Default
+    private Boolean convertedToFollower = false;
+
     @Column(name = "completed_at")
     private Instant completedAt;
 

@@ -298,6 +298,20 @@ class ApiClient {
   backfillKnowledge(): Promise<any> {
     return this.request<any>('/knowledge/backfill', { method: 'POST' })
   }
+
+  // Analytics & Audience Intelligence
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAnalytics(): Promise<any> {
+    return this.request<any>('/analytics')
+  }
+
+  // Captured Leads
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getLeads(query?: string, page = 0, size = 20): Promise<any> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) })
+    if (query) params.set('query', query)
+    return this.request<any>(`/leads?${params}`)
+  }
 }
 
 export const apiClient = new ApiClient()

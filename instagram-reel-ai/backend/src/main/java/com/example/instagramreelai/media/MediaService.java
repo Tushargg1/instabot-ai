@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -35,9 +36,49 @@ public class MediaService {
 
     /**
      * Downloads media from the given URL to a temporary file.
-     * Includes SSRF protection and size/MIME validation.
+     * Supports direct CDN URLs as well as YouTube Shorts and TikTok links via yt-dlp.
      */
     public Path downloadMedia(String mediaUrl) throws IOException, InterruptedException {
+        if (isSocialVideoUrl(mediaUrl)) {
+            try {
+                return downloadViaYtDlp(mediaUrl);
+            } catch (Exception e) {
+                log.warn("yt-dlp download failed, falling back to direct download: {}", e.getMessage());
+            }
+        }
+        return downloadDirect(mediaUrl);
+    }
+
+    private Path downloadViaYtDlp(String url) throws IOException, InterruptedException {
+        Path tempDir = Path.of(appProperties.getMedia().getTempDir());
+        Files.createDirectories(tempDir);
+        Path outputFile = tempDir.resolve(UUID.randomUUID() + ".mp4");
+
+        ProcessBuilder pb = new ProcessBuilder(
+                "yt-dlp",
+                "-f", "best[ext=mp4]/best",
+                "-o", outputFile.toString(),
+                "--max-filesize", "50M",
+                "--no-playlist",
+                url
+        );
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        boolean finished = process.waitFor(45, TimeUnit.SECONDS);
+        if (!finished || process.exitValue() != 0 || !Files.exists(outputFile) || Files.size(outputFile) == 0) {
+            Files.deleteIfExists(outputFile);
+            throw new IOException("yt-dlp exited with error or produced empty file");
+        }
+        return outputFile;
+    }
+
+    private boolean isSocialVideoUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase();
+        return lower.contains("youtube.com") || lower.contains("youtu.be") || lower.contains("tiktok.com");
+    }
+
+    private Path downloadDirect(String mediaUrl) throws IOException, InterruptedException {
         validateUrl(mediaUrl);
 
         Path tempDir = Path.of(appProperties.getMedia().getTempDir());

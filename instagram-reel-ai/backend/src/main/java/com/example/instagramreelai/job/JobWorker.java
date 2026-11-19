@@ -216,7 +216,9 @@ public class JobWorker {
                     Optional<InstagramUserProfile> profileOpt = userProfileService.getProfile(senderId);
                     if (profileOpt.isPresent()) {
                         InstagramUserProfile profile = profileOpt.get();
-                        if (Boolean.FALSE.equals(profile.getIsUserFollowBusiness())) {
+                        boolean isFollowing = Boolean.TRUE.equals(profile.getIsUserFollowBusiness());
+                        request.setWasFollowingInitially(isFollowing);
+                        if (!isFollowing) {
                             messageToSend = formatTeaserReply(reel, profile);
                             log.info("Sender {} is NOT following; sending teaser lead-magnet reply", senderId);
                         }
@@ -301,6 +303,8 @@ public class JobWorker {
             }
         } catch (Exception ignored) {}
 
+        sb.append("\n📬 Drop your email below to get the Notion template & resource checklist in your inbox!");
+
         return truncate(sb.toString().trim());
     }
 
@@ -329,6 +333,8 @@ public class JobWorker {
         if (summary.getActionItems() != null && !summary.getActionItems().isEmpty()) {
             sb.append("💡 Key Takeaway:\n• ").append(summary.getActionItems().get(0)).append("\n");
         }
+
+        sb.append("\n📬 Drop your email below to get the Notion template & resource checklist in your inbox!");
 
         return truncate(sb.toString().trim());
     }
