@@ -1,0 +1,31 @@
+# Local end-to-end profile: real Groq + real Meta Instagram client, but H2 file storage
+# instead of PostgreSQL. Deliberately NOT named "dev" so the mock beans stay inactive.
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/instagram_reel_ai;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+app:
+  instagram:
+    # Meta signs webhooks with the app secret. Keep this off until the exact secret
+    # used for signing is confirmed, otherwise valid events are rejected as forgeries.
+    webhook-signature-required: false
+  cors:
+    allowed-origins: http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003

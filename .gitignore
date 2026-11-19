@@ -1,0 +1,29 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build outputs
+**/target/
+**/dist/
+**/node_modules/
+
+# Logs and temp
+*.log
+**/*.log
+temp-media/
+/tmp/
+.playwright-mcp/
+pipeline-test/*.mp3
+
+# Databases
+*.db
+*.mv.db
+*.trace.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

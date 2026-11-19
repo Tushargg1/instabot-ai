@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: instagram_reel_ai
+      POSTGRES_USER: instagram_ai
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U instagram_ai -d instagram_reel_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/instagram_reel_ai
+      SPRING_DATASOURCE_USERNAME: instagram_ai
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-change_me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-whisper-1}
+      OPENAI_SUMMARY_MODEL: ${OPENAI_SUMMARY_MODEL:-gpt-4o}
+      INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+      INSTAGRAM_ACCESS_TOKEN: ${INSTAGRAM_ACCESS_TOKEN:-}
+      INSTAGRAM_ACCOUNT_ID: ${INSTAGRAM_ACCOUNT_ID:-}
+      INSTAGRAM_WEBHOOK_VERIFY_TOKEN: ${INSTAGRAM_WEBHOOK_VERIFY_TOKEN:-test_verify_token}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_secret_at_least_32_chars}
+      MEDIA_TEMP_DIR: /tmp/instagram-reel-ai
+      MAX_MEDIA_SIZE_MB: ${MAX_MEDIA_SIZE_MB:-100}
+      FFMPEG_PATH: ffmpeg
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3002}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3002:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:

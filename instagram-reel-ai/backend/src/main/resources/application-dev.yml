@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/instagram_reel_ai;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.H2Dialect
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+app:
+  instagram:
+    webhook-signature-required: false
+  cors:
+    allowed-origins: http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003

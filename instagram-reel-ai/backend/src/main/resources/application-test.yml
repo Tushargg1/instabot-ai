@@ -1,0 +1,95 @@
+server:
+  port: 8085
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 500ms
+      repositories:
+        enabled: false
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+
+
+app:
+  jwt:
+    secret: test-secret-key-that-is-long-enough-for-hs256-algorithm-testing
+    expiration-ms: 86400000
+
+  openai:
+    api-key: test-key
+    transcription-model: whisper-large-v3-turbo
+    summary-model: llama-3.3-70b-versatile
+
+  instagram:
+    app-id: "2046793422623083"
+    app-secret: test-secret
+    access-token: test-token
+    account-id: test-account
+    webhook-verify-token: my_secret_verify_token_123
+    oauth-redirect-uri: http://localhost:8085/api/instagram/oauth/callback
+    frontend-redirect-uri: http://localhost:3002/instagram
+    oauth-authorize-url: https://www.instagram.com/oauth/authorize
+    oauth-token-url: https://api.instagram.com/oauth/access_token
+    graph-api-base: https://graph.instagram.com
+    graph-api-version: v26.0
+    oauth-scopes: instagram_business_basic,instagram_business_manage_messages
+    oauth-state-ttl-minutes: 10
+    webhook-signature-required: false
+
+  media:
+    temp-dir: ./temp-media
+    max-size-mb: 100
+    ffmpeg-path: ffmpeg
+
+  cors:
+    allowed-origins: http://localhost:3002,http://localhost:5173
+
+  admin:
+    username: admin
+    password: admin123
+
+  cache:
+    reel-ttl: PT24H
+
+  worker:
+    instance-id: test-worker
+    heartbeat-interval-ms: 10000
+    stale-after-ms: 30000
+    job-lease-seconds: 120
+    poll-batch-size: 10
+
+  resources:
+    refresh-interval-ms: 60000
+    ttl-seconds: 86400
+
+  public-submission-token:
+    default-ttl-seconds: 900
+
+logging:
+  level:
+    root: INFO
+    com.example.instagramreelai: DEBUG
