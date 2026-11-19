@@ -278,6 +278,26 @@ class ApiClient {
       body: JSON.stringify({ recipientId, message }),
     })
   }
+
+  // Knowledge Hub
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getKnowledgeItems(query?: string, category?: string, subCategory?: string, page = 0, size = 20): Promise<any> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) })
+    if (query) params.set('query', query)
+    if (category) params.set('category', category)
+    if (subCategory) params.set('subCategory', subCategory)
+    return this.request<any>(`/knowledge?${params}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getKnowledgeCategories(): Promise<any> {
+    return this.request<any>('/knowledge/categories')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  backfillKnowledge(): Promise<any> {
+    return this.request<any>('/knowledge/backfill', { method: 'POST' })
+  }
 }
 
 export const apiClient = new ApiClient()

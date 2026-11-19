@@ -9,6 +9,7 @@ import com.example.instagramreelai.instagram.InstagramClient;
 import com.example.instagramreelai.media.MediaService;
 import com.example.instagramreelai.repository.*;
 import com.example.instagramreelai.service.EncryptionService;
+import com.example.instagramreelai.service.KnowledgeService;
 import com.example.instagramreelai.service.ReelCacheService;
 import com.example.instagramreelai.service.ReelResultService;
 import com.example.instagramreelai.service.ResourceDetectionService;
@@ -46,6 +47,7 @@ public class JobWorker {
     private final ResourceDetectionService resourceDetectionService;
     private final WorkerRegistryService workerRegistryService;
     private final ObjectMapper objectMapper;
+    private final KnowledgeService knowledgeService;
 
     @Scheduled(fixedDelay = 5000)
     public void pollAndProcess() {
@@ -132,6 +134,7 @@ public class JobWorker {
             // Stage: SAVING (idempotent upsert)
             jobService.updateStatus(job.getId(), workerId, JobStatus.SAVING, JobStatus.SAVING);
             resultService.save(reel, transcription, summaryResult);
+            knowledgeService.saveExtractedItems(reel, summaryResult);
             resourceDetectionService.detectAndPersist(reel.getId());
 
             // Stage: REPLYING to every pending request for this canonical Reel.

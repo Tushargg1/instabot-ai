@@ -16,4 +16,5 @@ public class AiSummaryResult {
     private List<String> claimsToVerify;
     private String language;
     private Double confidence;
+    private List<ExtractedKnowledgeItemDto> extractedItems;
 }

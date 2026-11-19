@@ -15,6 +15,7 @@ import SubmissionLinksPage from './pages/SubmissionLinksPage'
 import PublicSubmitPage from './pages/PublicSubmitPage'
 import DmAutoReplyPage from './pages/DmAutoReplyPage'
 import DmInboxPage from './pages/DmInboxPage'
+import KnowledgeHubPage from './pages/KnowledgeHubPage'
 
 export default function App() {
   const { isAuthenticated, username, role, login, register, demoLogin, logout } = useAuth()
@@ -31,6 +32,7 @@ export default function App() {
         <>
           <Route element={<DashboardLayout username={username} role={role} onLogout={logout} />}>
             <Route path="/" element={<OverviewPage />} />
+            <Route path="/knowledge" element={<KnowledgeHubPage />} />
             <Route path="/reels" element={<ReelsPage />} />
             <Route path="/reels/:id" element={<ReelDetailPage />} />
             <Route path="/jobs" element={<JobsPage />} />

@@ -2,6 +2,7 @@ package com.example.instagramreelai.ai;
 
 import com.example.instagramreelai.config.AppProperties;
 import com.example.instagramreelai.dto.AiSummaryResult;
+import com.example.instagramreelai.dto.ExtractedKnowledgeItemDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
@@ -12,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -34,19 +36,49 @@ public class GroqSummaryService implements SummaryService {
     private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
 
     private static final String SYSTEM_PROMPT = """
-            You are an expert AI summarizer for Instagram Reels.
-            The user wants the content of the reel in a SHORT and PRECISE way: just the main points, key data, and actionable takeaways.
-            
+            You are an expert AI intelligence and knowledge extraction engine for Instagram Reels.
+            The user wants:
+            1. A SHORT and PRECISE breakdown: just main points, key data, and actionable takeaways.
+            2. Structured categorization of all distinct entities, tools, jobs, repositories, skills, projects, or resources discussed in the reel, grouped by category and granular sub-category.
+
             Rules:
-            - Be concise, direct, and factual. Avoid filler, intro phrases, or meta-commentary like "In this reel the speaker discusses...".
-            - Extract exact numbers, metrics, statistics, tools, websites, steps, and data points mentioned.
+            - Be concise, direct, and factual. Avoid filler like "In this reel the speaker discusses...".
+            - Extract exact numbers, metrics, statistics, tools, websites, salaries, requirements, steps, and key data.
             - Keep the summary punchy (2 sentences max).
-            - List 3 to 5 clear, bulleted key points highlighting the core value and specific facts.
-            - Extract any mentioned tools, resources, websites, or products.
-            - If action items exist, provide the most important actionable takeaway.
-            
+            - List 3 to 5 clear, bulleted key points highlighting core value and specific facts.
+            - In "extractedItems", extract 1 or more distinct entries for each tool, job role, github repo, skill, technique, website, or project mentioned in the reel.
+              * "category": Choose an intuitive high-level group (e.g., "Tools", "Jobs", "GitHub Repositories", "Skills & Guides", "Projects & Ideas", "AI Models", "Automation", "Finance & Business").
+              * "subCategory": Differentiate into specific sub-parts (e.g. for Tools: "Video Clipping", "Voice AI", "Developer Tools", "SEO"; for Jobs: "Remote Engineering", "Prompt Engineering"; for Skills: "Web Development", "Content Creation").
+              * "title": Specific name of the item (e.g., "OpusClip", "ElevenLabs", "Staff Prompt Engineer", "Significant-Gravitas/AutoGPT").
+              * "summary": 1-2 sentence description of what it does, what is offered, or what is taught.
+              * "keyData": Key facts, pricing, free quota, salary, requirements, github stars, or links.
+              * "url": Web link if mentioned or known (e.g., "https://opus.pro", "https://github.com/..."), or null.
+              * "tags": List of 2-4 keywords (e.g. ["video", "clipping", "ai"]).
+
             Return ONLY valid JSON matching this exact schema:
-            {"title":"string","summary":"string","keyPoints":["string"],"actionItems":["string"],"topics":["string"],"toolsOrProducts":["string"],"peopleOrCompanies":["string"],"claimsToVerify":["string"],"language":"string","confidence":0.0}
+            {
+              "title": "string",
+              "summary": "string",
+              "keyPoints": ["string"],
+              "actionItems": ["string"],
+              "topics": ["string"],
+              "toolsOrProducts": ["string"],
+              "peopleOrCompanies": ["string"],
+              "claimsToVerify": ["string"],
+              "language": "string",
+              "confidence": 0.0,
+              "extractedItems": [
+                {
+                  "title": "string",
+                  "category": "string",
+                  "subCategory": "string",
+                  "summary": "string",
+                  "keyData": "string",
+                  "url": "string",
+                  "tags": ["string"]
+                }
+              ]
+            }
             """;
 
     private final AppProperties appProperties;
@@ -96,7 +128,9 @@ public class GroqSummaryService implements SummaryService {
                 var json = objectMapper.readTree(response.body());
                 String content = json.path("choices").get(0).path("message").path("content").asText();
                 log.info("Groq summary completed using model={}", model);
-                return objectMapper.readValue(content, AiSummaryResult.class);
+                AiSummaryResult result = objectMapper.readValue(content, AiSummaryResult.class);
+                ensureExtractedItems(result);
+                return result;
             } else {
                 log.error("Groq summary failed: status={}, body={}", response.statusCode(), response.body());
                 throw new RuntimeException("Groq summary failed with status " + response.statusCode());
@@ -105,6 +139,34 @@ public class GroqSummaryService implements SummaryService {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException("Groq summary error", e);
+        }
+    }
+
+    private void ensureExtractedItems(AiSummaryResult result) {
+        if (result.getExtractedItems() == null || result.getExtractedItems().isEmpty()) {
+            List<ExtractedKnowledgeItemDto> fallbackList = new ArrayList<>();
+            if (result.getToolsOrProducts() != null && !result.getToolsOrProducts().isEmpty()) {
+                for (String tool : result.getToolsOrProducts()) {
+                    fallbackList.add(ExtractedKnowledgeItemDto.builder()
+                            .title(tool)
+                            .category("Tools")
+                            .subCategory("AI & Automation")
+                            .summary(result.getSummary())
+                            .keyData(result.getKeyPoints() != null && !result.getKeyPoints().isEmpty() ? result.getKeyPoints().get(0) : null)
+                            .tags(result.getTopics())
+                            .build());
+                }
+            } else {
+                fallbackList.add(ExtractedKnowledgeItemDto.builder()
+                        .title(result.getTitle() != null && !result.getTitle().isBlank() ? result.getTitle() : "Reel Insight")
+                        .category("Insights & Resources")
+                        .subCategory(result.getTopics() != null && !result.getTopics().isEmpty() ? result.getTopics().get(0) : "General")
+                        .summary(result.getSummary())
+                        .keyData(result.getKeyPoints() != null ? String.join("; ", result.getKeyPoints()) : null)
+                        .tags(result.getTopics())
+                        .build());
+            }
+            result.setExtractedItems(fallbackList);
         }
     }
 }
