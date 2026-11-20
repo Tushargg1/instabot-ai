@@ -26,19 +26,23 @@ public class ReelIngestionService {
     @Transactional
     public IngestionResult recordRequest(String messageId, String senderId, String recipientId,
                                          String rawPayload, Reel reel) {
+        InstagramWebhookEvent event;
         var existingEvent = eventRepository.findByExternalEventId(messageId);
         if (existingEvent.isPresent()) {
-            return new IngestionResult(reel, true, false);
+            event = existingEvent.get();
+            if (requestRepository.existsByWebhookEventId(event.getId())) {
+                return new IngestionResult(reel, true, false);
+            }
+        } else {
+            event = eventRepository.save(InstagramWebhookEvent.builder()
+                    .externalEventId(messageId)
+                    .eventType("message")
+                    .senderId(senderId)
+                    .recipientId(recipientId)
+                    .user(reel.getUser())
+                    .rawPayload(rawPayload)
+                    .build());
         }
-
-        InstagramWebhookEvent event = eventRepository.save(InstagramWebhookEvent.builder()
-                .externalEventId(messageId)
-                .eventType("message")
-                .senderId(senderId)
-                .recipientId(recipientId)
-                .user(reel.getUser())
-                .rawPayload(rawPayload)
-                .build());
 
         requestRepository.save(ReelRequest.builder()
                 .reel(reel)
