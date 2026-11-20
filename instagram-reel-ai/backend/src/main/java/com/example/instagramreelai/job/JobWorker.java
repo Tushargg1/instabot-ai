@@ -52,7 +52,7 @@ public class JobWorker {
     private final KnowledgeService knowledgeService;
     private final InstagramUserProfileService userProfileService;
 
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelay = 2000)
     public void pollAndProcess() {
         jobService.prepareAutomaticRetriesAndRecoverStaleClaims();
         String workerId = workerRegistryService.getInstanceId();
@@ -60,6 +60,10 @@ public class JobWorker {
         for (ProcessingJob job : readyJobs) {
             if (jobService.claimJob(job.getId(), workerId)) processJob(job, workerId);
         }
+    }
+
+    public void triggerAsync() {
+        java.util.concurrent.CompletableFuture.runAsync(this::pollAndProcess);
     }
 
     void processJob(ProcessingJob job, String workerId) {
@@ -128,9 +132,14 @@ public class JobWorker {
 
             mediaFile = mediaService.downloadMedia(mediaUrl.get());
 
-            // Stage: EXTRACTING_AUDIO
-            jobService.updateStatus(job.getId(), workerId, JobStatus.EXTRACTING_AUDIO, JobStatus.EXTRACTING_AUDIO);
-            audioFile = mediaService.extractAudio(mediaFile);
+            // Stage: EXTRACTING_AUDIO (skip FFmpeg if audio was directly downloaded)
+            String fileName = mediaFile.getFileName().toString().toLowerCase();
+            if (fileName.endsWith(".mp3") || fileName.endsWith(".m4a") || fileName.endsWith(".wav")) {
+                audioFile = mediaFile;
+            } else {
+                jobService.updateStatus(job.getId(), workerId, JobStatus.EXTRACTING_AUDIO, JobStatus.EXTRACTING_AUDIO);
+                audioFile = mediaService.extractAudio(mediaFile);
+            }
 
             // Stage: TRANSCRIBING
             jobService.updateStatus(job.getId(), workerId, JobStatus.TRANSCRIBING, JobStatus.TRANSCRIBING);

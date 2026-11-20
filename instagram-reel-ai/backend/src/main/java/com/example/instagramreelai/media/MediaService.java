@@ -52,29 +52,32 @@ public class MediaService {
     private Path downloadViaYtDlp(String url) throws IOException, InterruptedException {
         Path tempDir = Path.of(appProperties.getMedia().getTempDir());
         Files.createDirectories(tempDir);
-        Path outputFile = tempDir.resolve(UUID.randomUUID() + ".mp4");
+        Path outputFile = tempDir.resolve(UUID.randomUUID() + ".mp3");
 
+        // High-speed direct audio extraction: only downloads audio stream (~300KB instead of 10-50MB video)
         ProcessBuilder pb = new ProcessBuilder(
                 "yt-dlp",
-                "-f", "best[ext=mp4]/best",
+                "-f", "ba/b",
+                "-x",
+                "--audio-format", "mp3",
                 "-o", outputFile.toString(),
-                "--max-filesize", "50M",
+                "--max-filesize", "25M",
                 "--no-playlist",
                 url
         );
         pb.redirectErrorStream(true);
         Process process = pb.start();
-        boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+        boolean finished = process.waitFor(45, TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
             Files.deleteIfExists(outputFile);
-            throw new IOException("yt-dlp download timed out after 60 seconds");
+            throw new IOException("yt-dlp audio download timed out after 45 seconds");
         }
         if (process.exitValue() != 0 || !Files.exists(outputFile) || Files.size(outputFile) == 0) {
             String processOutput = new String(process.getInputStream().readAllBytes());
             Files.deleteIfExists(outputFile);
-            log.error("yt-dlp exited with error code {}: {}", process.exitValue(), processOutput);
-            throw new IOException("yt-dlp exited with error (code " + process.exitValue() + "): " + processOutput);
+            log.error("yt-dlp audio extraction exited with error code {}: {}", process.exitValue(), processOutput);
+            throw new IOException("yt-dlp audio extraction exited with error (code " + process.exitValue() + "): " + processOutput);
         }
         return outputFile;
     }

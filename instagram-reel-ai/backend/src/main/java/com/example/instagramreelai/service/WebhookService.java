@@ -33,6 +33,7 @@ public class WebhookService {
     private final DmAutoReplyService dmAutoReplyService;
     private final AppProperties appProperties;
     private final InstagramClient instagramClient;
+    private final com.example.instagramreelai.job.JobWorker jobWorker;
 
     /**
      * Performs only durable, idempotent intake. Expensive media and AI work stays queued.
@@ -190,6 +191,9 @@ public class WebhookService {
                     objectMapper.writeValueAsString(fullPayload), reel);
             log.info("Ingested reel request event={} canonicalReel={} duplicate={} jobCreated={}",
                     messageId, reel.getCanonicalKey(), result.duplicateEvent(), result.jobCreated());
+            if (result.jobCreated()) {
+                jobWorker.triggerAsync();
+            }
         } catch (DataIntegrityViolationException race) {
             // A concurrent request won a single-flight constraint. Meta should retry this event.
             throw race;
