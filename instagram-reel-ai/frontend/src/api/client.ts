@@ -38,10 +38,10 @@ class ApiClient {
     if (authenticated && this.token) headers.Authorization = `Bearer ${this.token}`
 
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
-    if (authenticated && response.status === 401) {
+    if (authenticated && (response.status === 401 || response.status === 403)) {
       this.setToken(null)
       window.location.href = '/'
-      throw new Error('Unauthorized')
+      throw new Error('Unauthorized or session expired')
     }
     if (!response.ok) {
       let message = `Request failed (${response.status})`
