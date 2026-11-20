@@ -64,10 +64,17 @@ public class MediaService {
         );
         pb.redirectErrorStream(true);
         Process process = pb.start();
-        boolean finished = process.waitFor(45, TimeUnit.SECONDS);
-        if (!finished || process.exitValue() != 0 || !Files.exists(outputFile) || Files.size(outputFile) == 0) {
+        boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
             Files.deleteIfExists(outputFile);
-            throw new IOException("yt-dlp exited with error or produced empty file");
+            throw new IOException("yt-dlp download timed out after 60 seconds");
+        }
+        if (process.exitValue() != 0 || !Files.exists(outputFile) || Files.size(outputFile) == 0) {
+            String processOutput = new String(process.getInputStream().readAllBytes());
+            Files.deleteIfExists(outputFile);
+            log.error("yt-dlp exited with error code {}: {}", process.exitValue(), processOutput);
+            throw new IOException("yt-dlp exited with error (code " + process.exitValue() + "): " + processOutput);
         }
         return outputFile;
     }
@@ -75,7 +82,9 @@ public class MediaService {
     private boolean isSocialVideoUrl(String url) {
         if (url == null) return false;
         String lower = url.toLowerCase();
-        return lower.contains("youtube.com") || lower.contains("youtu.be") || lower.contains("tiktok.com");
+        return lower.contains("youtube.com") || lower.contains("youtu.be")
+                || lower.contains("tiktok.com")
+                || lower.contains("instagram.com");
     }
 
     private Path downloadDirect(String mediaUrl) throws IOException, InterruptedException {

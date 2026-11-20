@@ -109,6 +109,12 @@ public class JobWorker {
                 mediaUrl = instagramClient.resolveMediaUrl(reel.getExternalMediaId(), accessToken);
             }
 
+            // 3. Fallback: If direct media URL or API resolution is unavailable, use the public video URL (Instagram Reel, TikTok, YouTube Shorts)
+            if (mediaUrl.isEmpty() && reel.getSourceUrl() != null && !reel.getSourceUrl().isBlank()
+                    && (reel.getSourceUrl().startsWith("http://") || reel.getSourceUrl().startsWith("https://"))) {
+                mediaUrl = Optional.of(reel.getSourceUrl());
+            }
+
             if (mediaUrl.isEmpty()) {
                 reel.setProcessingStatus(JobStatus.MEDIA_UNAVAILABLE);
                 reelRepository.save(reel);
